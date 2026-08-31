@@ -1,0 +1,133 @@
+import { useState } from 'react'
+import { db, queueMutation } from '../db'
+import { reconocerRecibo } from '../ocr'
+import MoneyInput from '../components/MoneyInput'
+
+const CATEGORIAS = [
+  ['combustible', 'Combustible'], ['peaje', 'Peaje'], ['comida', 'Comida'],
+  ['hospedaje', 'Hospedaje'], ['mantenimiento', 'Mantenimiento'], ['otro', 'Otro'],
+]
+
+function uuid() {
+  return crypto.randomUUID()
+}
+
+export default function RegistrarGasto({ ruta, onGuardado }) {
+  const [monto, setMonto] = useState('')
+  const [categoria, setCategoria] = useState('combustible')
+  const [nota, setNota] = useState('')
+  const [fotoBlob, setFotoBlob] = useState(null)
+  const [fotoPreview, setFotoPreview] = useState(null)
+  const [montoOcr, setMontoOcr] = useState(null)
+  const [procesandoOcr, setProcesandoOcr] = useState(false)
+  const [guardado, setGuardado] = useState(false)
+
+  async function handleFoto(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setFotoBlob(file)
+    setFotoPreview(URL.createObjectURL(file))
+    setProcesandoOcr(true)
+
+    try {
+      // Runs fully on-device — works with no internet connection.
+      const { montoDetectado } = await reconocerRecibo(file)
+      if (montoDetectado) {
+        setMontoOcr(montoDetectado)
+        setMonto(montoDetectado) // pre-fill; driver can still edit
+      }
+    } catch (err) {
+      console.warn('OCR no disponible:', err.message)
+    } finally {
+      setProcesandoOcr(false)
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+
+    const registro = {
+      uuid: uuid(),
+      ruta_uuid: ruta.uuid,
+      monto: Number(monto),
+      categoria,
+      nota,
+      monto_ocr: montoOcr,
+      creado_offline_en: new Date().toISOString(),
+      synced: 0,
+      created_at: new Date().toISOString(),
+    }
+
+    // Local-first: save immediately, regardless of connectivity.
+    await db.gastos.put(registro)
+    await queueMutation('gastos', registro, fotoBlob)
+
+    setMonto(''); setCategoria('combustible'); setNota('')
+    setFotoBlob(null); setFotoPreview(null); setMontoOcr(null)
+    onGuardado?.()
+
+    setGuardado(true)
+    setTimeout(() => setGuardado(false), 2500)
+  }
+
+  return (
+    <div className="card p-4">
+      <h2 className="text-lg font-semibold text-slate-900">Registrar gasto</h2>
+      <p className="text-sm text-slate-500 mb-4">{ruta.origen} → {ruta.destino}</p>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="label">Foto del recibo</label>
+          <label className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500 cursor-pointer hover:border-brand-400 hover:text-brand-600 transition-colors">
+            <span aria-hidden="true">📷</span>
+            {fotoBlob ? 'Cambiar foto' : 'Tomar o elegir foto'}
+            <input type="file" accept="image/*" capture="environment" onChange={handleFoto} className="hidden" />
+          </label>
+
+          {fotoPreview && (
+            <img src={fotoPreview} alt="Recibo" className="mt-3 max-h-48 rounded-lg border border-slate-200" />
+          )}
+          {procesandoOcr && (
+            <p className="mt-2 text-sm text-slate-500">Leyendo el recibo…</p>
+          )}
+          {montoOcr && !procesandoOcr && (
+            <p className="mt-2 text-sm text-emerald-600">
+              Monto detectado: {new Intl.NumberFormat('es-CO').format(montoOcr)} (puedes corregirlo abajo)
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="label">Monto</label>
+          <MoneyInput value={monto} onChange={setMonto} required />
+        </div>
+
+        <div>
+          <label className="label">Categoría</label>
+          <select className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            {CATEGORIAS.map(([valor, texto]) => <option key={valor} value={valor}>{texto}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="label">Nota (opcional)</label>
+          <textarea
+            className="input"
+            rows={2}
+            value={nota}
+            onChange={(e) => setNota(e.target.value)}
+          />
+        </div>
+
+        {guardado && (
+          <p className="text-sm text-emerald-600">Gasto guardado.</p>
+        )}
+
+        <button type="submit" className="btn-primary w-full">
+          Guardar gasto
+        </button>
+      </form>
+    </div>
+  )
+}
