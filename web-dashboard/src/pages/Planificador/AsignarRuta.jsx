@@ -156,7 +156,7 @@ export default function AsignarRuta() {
                 onChange={(e) => setForm({ ...form, fecha_salida: e.target.value })} />
             </div>
             <div>
-              <label className="label">Presupuesto asignado <span className="text-red-500">*</span></label>
+              <label className="label">Anticipo asignado <span className="text-red-500">*</span></label>
               <MoneyInput
                 value={form.monto_asignado}
                 onChange={(monto_asignado) => setForm({ ...form, monto_asignado })}
@@ -263,7 +263,7 @@ export default function AsignarRuta() {
                   onChange={(e) => setFormEdicion({ ...formEdicion, fecha_salida: e.target.value })} />
               </div>
               <div>
-                <label className="label">Presupuesto asignado</label>
+                <label className="label">Anticipo asignado</label>
                 <MoneyInput
                   value={formEdicion.monto_asignado}
                   onChange={(monto_asignado) => setFormEdicion({ ...formEdicion, monto_asignado })}
