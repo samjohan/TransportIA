@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
+import { pullRutasAsignadas } from '../sync'
 import RegistrarGasto from './RegistrarGasto'
 import { formatCOP } from '../format'
 
@@ -18,6 +19,7 @@ const ESTADO_BADGE = {
 
 export default function InicioConductor() {
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null)
+  const [actualizando, setActualizando] = useState(false)
   const rutas = useLiveQuery(() => db.rutas.toArray(), []) ?? []
   const gastos = useLiveQuery(
     () => rutaSeleccionada
@@ -25,6 +27,26 @@ export default function InicioConductor() {
       : [],
     [rutaSeleccionada]
   ) ?? []
+
+  async function actualizar() {
+    if (!navigator.onLine) return
+    setActualizando(true)
+    try {
+      await pullRutasAsignadas()
+    } catch (err) {
+      console.warn('No se pudo actualizar la lista de rutas:', err.message)
+    } finally {
+      setActualizando(false)
+    }
+  }
+
+  // Re-sincroniza cada vez que se vuelve a la lista (incluye el montaje
+  // inicial) — antes solo se traía una vez al cargar la app, así que si el
+  // planificador cambiaba algo mientras el conductor seguía con la app
+  // abierta, veía datos desactualizados aunque estuviera en línea.
+  useEffect(() => {
+    if (!rutaSeleccionada) actualizar()
+  }, [rutaSeleccionada])
 
   if (rutaSeleccionada) {
     return (
@@ -67,7 +89,16 @@ export default function InicioConductor() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-semibold text-slate-900 mb-4">Mis rutas</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold text-slate-900">Mis rutas</h1>
+        <button
+          onClick={actualizar}
+          disabled={actualizando}
+          className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:text-slate-400"
+        >
+          {actualizando ? 'Actualizando…' : '↻ Actualizar'}
+        </button>
+      </div>
       {rutas.length === 0 && (
         <p className="text-sm text-slate-400">No hay rutas asignadas todavía.</p>
       )}

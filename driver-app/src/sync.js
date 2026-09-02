@@ -29,12 +29,16 @@ export async function pushQueuedMutations() {
   }
 }
 
-// Pull the driver's assigned routes so they're viewable offline.
+// Pull the driver's assigned routes so they're viewable offline. Replaces
+// the whole local cache with the server's list — just upserting left stale
+// routes (reassigned/deleted/from an earlier session) stuck locally forever,
+// since nothing ever removed them.
 export async function pullRutasAsignadas() {
   const { data } = await api.get('/rutas')
-  for (const ruta of data) {
-    await db.rutas.put(ruta)
-  }
+  await db.transaction('rw', db.rutas, async () => {
+    await db.rutas.clear()
+    await db.rutas.bulkPut(data)
+  })
 }
 
 export async function fullSync() {
