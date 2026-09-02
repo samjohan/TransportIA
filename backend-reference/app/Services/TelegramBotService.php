@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Telegram\Bot\Api;
+use Telegram\Bot\Objects\CallbackQuery;
 use Telegram\Bot\Objects\Update;
 
 // Lets a conductor register gastos entirely from Telegram, as an
@@ -19,9 +20,25 @@ use Telegram\Bot\Objects\Update;
 // app. One conversation flow per chat; state is tracked in
 // TelegramSession since long-polling updates arrive one at a time with no
 // memory of previous messages otherwise.
+//
+// Ruta/categoría/nota/foto choices are inline keyboards (buttons attached
+// to the bot's own message, answered via callback_query) rather than a
+// persistent reply keyboard: tapping one doesn't leave a stray text message
+// in the chat, and the message is edited afterwards to show what was
+// picked and drop the buttons, so old ones can't be tapped again.
 class TelegramBotService
 {
     private const CATEGORIAS = ['Combustible', 'Peaje', 'Comida', 'Hospedaje', 'Mantenimiento', 'Otro'];
+
+    // Which session state a given callback_data prefix is only valid in —
+    // guards against a stray tap on an inline keyboard left over from an
+    // abandoned or already-finished flow.
+    private const ESTADO_POR_CALLBACK = [
+        'ruta' => 'esperando_ruta',
+        'cat' => 'esperando_categoria',
+        'nota' => 'esperando_nota',
+        'foto' => 'esperando_foto',
+    ];
 
     public function __construct(
         private Api $telegram,
@@ -30,6 +47,11 @@ class TelegramBotService
 
     public function handle(Update $update): void
     {
+        if ($callback = $update->getCallbackQuery()) {
+            $this->handleCallback($callback);
+            return;
+        }
+
         $message = $update->getMessage();
         if (! $message) {
             return; // ignore non-message updates (edits, reactions, etc.)
@@ -59,12 +81,41 @@ class TelegramBotService
         $session = TelegramSession::firstOrCreate(['chat_id' => $chatId]);
 
         match ($session->estado) {
-            'esperando_ruta' => $this->recibirRuta($chatId, $conductor, $session, $text),
-            'esperando_categoria' => $this->recibirCategoria($chatId, $session, $text),
+            'esperando_ruta' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la ruta.'),
+            'esperando_categoria' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la categoría.'),
             'esperando_monto' => $this->recibirMonto($chatId, $session, $text),
             'esperando_nota' => $this->recibirNota($chatId, $session, $text),
-            'esperando_foto' => $this->recibirFoto($chatId, $conductor, $session, $photos, $text),
+            'esperando_foto' => $this->recibirFoto($chatId, $conductor, $session, $photos),
             default => $this->enviar($chatId, 'Escribe /gasto para registrar un gasto.'),
+        };
+    }
+
+    private function handleCallback(CallbackQuery $callback): void
+    {
+        $this->telegram->answerCallbackQuery(['callback_query_id' => $callback->getId()]);
+
+        $chatId = (string) $callback->getMessage()->getChat()->getId();
+        $messageId = $callback->getMessage()->getMessageId();
+
+        $conductor = User::where('telegram_chat_id', $chatId)->first();
+        if (! $conductor) {
+            return;
+        }
+
+        [$tipo, $valor] = array_pad(explode(':', $callback->getData(), 2), 2, '');
+        $session = TelegramSession::firstOrCreate(['chat_id' => $chatId]);
+
+        $estadoEsperado = self::ESTADO_POR_CALLBACK[$tipo] ?? null;
+        if ($estadoEsperado === null || $session->estado !== $estadoEsperado) {
+            $this->marcarSeleccion($chatId, $messageId, 'Ese botón ya no es válido. Escribe /gasto para empezar de nuevo.');
+            return;
+        }
+
+        match ($tipo) {
+            'ruta' => $this->seleccionarRuta($chatId, $messageId, $conductor, $session, $valor),
+            'cat' => $this->seleccionarCategoria($chatId, $messageId, $session, $valor),
+            'nota' => $this->omitirNota($chatId, $messageId, $session),
+            'foto' => $this->omitirFoto($chatId, $messageId, $conductor, $session),
         };
     }
 
@@ -103,35 +154,41 @@ class TelegramBotService
             'estado' => 'esperando_ruta', 'ruta_uuid' => null, 'categoria' => null, 'monto' => null, 'nota' => null,
         ]);
 
-        $botones = $rutas->map(fn ($r) => [['text' => "{$r->origen} → {$r->destino}"]])->toArray();
-        $this->enviar($chatId, '¿Para cuál ruta es el gasto?', $botones);
+        $filas = $rutas->map(fn ($r) => [[
+            'text' => "{$r->origen} → {$r->destino}",
+            'callback_data' => "ruta:{$r->uuid}",
+        ]])->toArray();
+        $this->enviarInline($chatId, '¿Para cuál ruta es el gasto?', $filas);
     }
 
-    private function recibirRuta(string $chatId, User $conductor, TelegramSession $session, string $text): void
+    private function seleccionarRuta(string $chatId, int $messageId, User $conductor, TelegramSession $session, string $rutaUuid): void
     {
-        $ruta = Ruta::where('conductor_id', $conductor->id)
-            ->whereRaw("origen || ' → ' || destino = ?", [$text])
-            ->first();
+        $ruta = Ruta::where('conductor_id', $conductor->id)->where('uuid', $rutaUuid)->first();
 
         if (! $ruta) {
-            $this->enviar($chatId, 'No reconozco esa ruta. Usa los botones de abajo.');
+            $this->marcarSeleccion($chatId, $messageId, 'Esa ruta ya no está disponible. Escribe /gasto para empezar de nuevo.');
             return;
         }
 
+        $this->marcarSeleccion($chatId, $messageId, "Ruta: {$ruta->origen} → {$ruta->destino}");
         $session->update(['estado' => 'esperando_categoria', 'ruta_uuid' => $ruta->uuid]);
-        $this->enviar($chatId, '¿Categoría del gasto?', array_map(fn ($c) => [['text' => $c]], self::CATEGORIAS));
+
+        $filas = collect(self::CATEGORIAS)
+            ->map(fn ($c) => [['text' => $c, 'callback_data' => 'cat:'.strtolower($c)]])
+            ->toArray();
+        $this->enviarInline($chatId, '¿Categoría del gasto?', $filas);
     }
 
-    private function recibirCategoria(string $chatId, TelegramSession $session, string $text): void
+    private function seleccionarCategoria(string $chatId, int $messageId, TelegramSession $session, string $categoria): void
     {
-        $valorEnBd = strtolower($text);
-        if (! in_array($valorEnBd, array_map('strtolower', self::CATEGORIAS), true)) {
-            $this->enviar($chatId, 'Elige una categoría con los botones de abajo.');
+        $indice = array_search($categoria, array_map('strtolower', self::CATEGORIAS), true);
+        if ($indice === false) {
             return;
         }
 
-        $session->update(['estado' => 'esperando_monto', 'categoria' => $valorEnBd]);
-        $this->enviar($chatId, '¿Cuál fue el monto? Envía solo el número, en pesos colombianos (ej: 50000).', removerTeclado: true);
+        $this->marcarSeleccion($chatId, $messageId, 'Categoría: '.self::CATEGORIAS[$indice]);
+        $session->update(['estado' => 'esperando_monto', 'categoria' => $categoria]);
+        $this->enviar($chatId, '¿Cuál fue el monto? Envía solo el número, en pesos colombianos (ej: 50000).');
     }
 
     private function recibirMonto(string $chatId, TelegramSession $session, string $text): void
@@ -143,28 +200,49 @@ class TelegramBotService
         }
 
         $session->update(['estado' => 'esperando_nota', 'monto' => $monto]);
-        $this->enviar($chatId, '¿Alguna nota? Escríbela, o toca "Sin nota".', [[['text' => 'Sin nota']]]);
+        $this->enviarInline($chatId, '¿Alguna nota? Escríbela, o toca "Sin nota".', [
+            [['text' => 'Sin nota', 'callback_data' => 'nota:skip']],
+        ]);
     }
 
     private function recibirNota(string $chatId, TelegramSession $session, string $text): void
     {
-        $session->update(['estado' => 'esperando_foto', 'nota' => $text === 'Sin nota' ? null : $text]);
-        $this->enviar($chatId, 'Envía una foto del recibo, o toca "Sin foto".', [[['text' => 'Sin foto']]]);
+        $session->update(['estado' => 'esperando_foto', 'nota' => $text]);
+        $this->enviarInline($chatId, 'Envía una foto del recibo, o toca "Sin foto".', [
+            [['text' => 'Sin foto', 'callback_data' => 'foto:skip']],
+        ]);
     }
 
-    private function recibirFoto(string $chatId, User $conductor, TelegramSession $session, ?array $photos, string $text): void
+    private function omitirNota(string $chatId, int $messageId, TelegramSession $session): void
     {
-        $reciboPath = null;
+        $this->marcarSeleccion($chatId, $messageId, 'Sin nota');
+        $session->update(['estado' => 'esperando_foto', 'nota' => null]);
+        $this->enviarInline($chatId, 'Envía una foto del recibo, o toca "Sin foto".', [
+            [['text' => 'Sin foto', 'callback_data' => 'foto:skip']],
+        ]);
+    }
 
-        if ($photos) {
-            // Telegram sends the same photo at several resolutions; the
-            // last entry is the largest.
-            $reciboPath = $this->descargarFoto(collect($photos)->last()->getFileId());
-        } elseif ($text !== 'Sin foto') {
+    private function recibirFoto(string $chatId, User $conductor, TelegramSession $session, ?array $photos): void
+    {
+        if (! $photos) {
             $this->enviar($chatId, 'Envía una foto o toca "Sin foto".');
             return;
         }
 
+        // Telegram sends the same photo at several resolutions; the last
+        // entry is the largest.
+        $reciboPath = $this->descargarFoto(collect($photos)->last()->getFileId());
+        $this->finalizarGasto($chatId, $conductor, $session, $reciboPath);
+    }
+
+    private function omitirFoto(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
+    {
+        $this->marcarSeleccion($chatId, $messageId, 'Sin foto');
+        $this->finalizarGasto($chatId, $conductor, $session, null);
+    }
+
+    private function finalizarGasto(string $chatId, User $conductor, TelegramSession $session, ?string $reciboPath): void
+    {
         $gasto = Gasto::create([
             'uuid' => (string) Str::uuid(),
             'ruta_uuid' => $session->ruta_uuid,
@@ -184,8 +262,7 @@ class TelegramBotService
         $montoFormateado = number_format((float) $session->monto, 0, ',', '.');
         $this->enviar(
             $chatId,
-            "✅ Gasto registrado: \${$montoFormateado} en {$session->categoria} para {$ruta->origen} → {$ruta->destino}.",
-            removerTeclado: true
+            "✅ Gasto registrado: \${$montoFormateado} en {$session->categoria} para {$ruta->origen} → {$ruta->destino}."
         );
 
         $session->update(['estado' => 'inicio', 'ruta_uuid' => null, 'categoria' => null, 'monto' => null, 'nota' => null]);
@@ -207,23 +284,33 @@ class TelegramBotService
         TelegramSession::updateOrCreate(['chat_id' => $chatId], [
             'estado' => 'inicio', 'ruta_uuid' => null, 'categoria' => null, 'monto' => null, 'nota' => null,
         ]);
-        $this->enviar($chatId, $mensaje, removerTeclado: true);
+        $this->enviar($chatId, $mensaje);
     }
 
-    private function enviar(string $chatId, string $texto, ?array $botones = null, bool $removerTeclado = false): void
+    // Edits the bot's own question message in place once it's answered —
+    // shows what was picked and drops the inline keyboard so the buttons
+    // can't be tapped again.
+    private function marcarSeleccion(string $chatId, int $messageId, string $texto): void
     {
-        $params = ['chat_id' => $chatId, 'text' => $texto];
+        $this->telegram->editMessageText([
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $texto,
+            'reply_markup' => json_encode(['inline_keyboard' => []]),
+        ]);
+    }
 
-        if ($botones) {
-            $params['reply_markup'] = json_encode([
-                'keyboard' => $botones,
-                'resize_keyboard' => true,
-                'one_time_keyboard' => true,
-            ]);
-        } elseif ($removerTeclado) {
-            $params['reply_markup'] = json_encode(['remove_keyboard' => true]);
-        }
+    private function enviarInline(string $chatId, string $texto, array $filas): void
+    {
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => $texto,
+            'reply_markup' => json_encode(['inline_keyboard' => $filas]),
+        ]);
+    }
 
-        $this->telegram->sendMessage($params);
+    private function enviar(string $chatId, string $texto): void
+    {
+        $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => $texto]);
     }
 }
