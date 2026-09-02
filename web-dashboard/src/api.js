@@ -12,10 +12,14 @@ api.interceptors.request.use((config) => {
 // token just expired) makes every request 401 forever with no visible
 // error. Force back to the login screen instead so the user gets a fresh,
 // working token.
+//
+// Only do this for a request that actually SENT a token — an anonymous
+// request 401ing is normal, not a dead session, and reloading for that
+// would just 401 the same way again forever.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && error.config?.headers?.Authorization) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       window.location.reload()
