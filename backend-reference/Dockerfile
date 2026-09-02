@@ -36,7 +36,7 @@ RUN composer create-project --prefer-dist --no-interaction --no-install --no-scr
     && cp -n .env.example .env \
     && composer config policy.advisories.block false \
     && composer install --no-interaction \
-    && composer require --no-interaction laravel/sanctum spatie/laravel-permission \
+    && composer require --no-interaction laravel/sanctum spatie/laravel-permission irazasyed/telegram-bot-sdk \
     && php artisan key:generate --ansi \
     && touch database/database.sqlite \
     # install:api auto-runs its migrations against whatever .env currently

@@ -37,8 +37,48 @@ services:
       # instead. Container-internal port (used by VITE_API_PROXY_TARGET
       # below) stays 8000.
       - "8080:8000"
+    volumes:
+      # Shared with telegram-bot below — without this, receipt photos
+      # (uploaded via either path) live only inside whichever container
+      # wrote them and vanish on restart/rebuild.
+      - backend_storage:/var/www/storage/app/public
+    healthcheck:
+      # Lets telegram-bot wait for migrations to actually be done instead
+      # of racing to run them itself — two containers both running
+      # `migrate` against a brand-new database at once made Postgres throw
+      # a unique-violation on its own internal catalog (both tried to
+      # CREATE TABLE "users" at the same instant).
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost:8000/up') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     depends_on:
       db:
+        condition: service_healthy
+
+  telegram-bot:
+    build: ./backend-reference
+    # Bypasses docker-entrypoint.sh (which also starts the HTTP server) —
+    # this service's only job is the long-polling loop. Doesn't run its
+    # own migrate: depends_on backend being *healthy* (not just db) already
+    # guarantees migrations are done by the time this starts.
+    entrypoint: ["php", "artisan", "telegram:poll"]
+    environment:
+      APP_ENV: local
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: rutas_gastos
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      QUEUE_CONNECTION: sync
+      # Set in a local .env file (gitignored) — never commit a real token.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - backend_storage:/var/www/storage/app/public
+    depends_on:
+      backend:
         condition: service_healthy
 
   web-dashboard:
@@ -62,3 +102,4 @@ services:
 
 volumes:
   db_data:
+  backend_storage:

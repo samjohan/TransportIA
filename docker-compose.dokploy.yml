@@ -15,13 +15,17 @@
 #                   the backend's connection — keep them in sync)
 #
 # Optional (sensible defaults below):
-#   DB_DATABASE   — default rutas_gastos
-#   DB_USERNAME   — default postgres
-#   DB_HOST       — default db (this compose file's own Postgres service)
-#   DB_PORT       — default 5432
+#   DB_DATABASE        — default rutas_gastos
+#   DB_USERNAME        — default postgres
+#   DB_HOST            — default db (this compose file's own Postgres service)
+#   DB_PORT            — default 5432
+#   TELEGRAM_BOT_TOKEN  — leave unset to skip the Telegram bot entirely; the
+#                         telegram-bot service just logs an error and exits
+#                         if it's missing, it won't crash the rest of the stack
 #
 # After deploying, assign a Dokploy domain to each service below at its
 # listed container port (backend:8000, web-dashboard:5173, driver-app:5174).
+# telegram-bot needs no domain — it only makes outbound calls to Telegram.
 services:
   db:
     image: postgres:16-alpine
@@ -56,8 +60,44 @@ services:
       # Uploaded receipt photos live under storage/app/public — without a
       # volume here they'd vanish on every redeploy.
       - backend_storage:/var/www/storage/app/public
+    healthcheck:
+      # Lets telegram-bot wait for migrations to actually be done instead
+      # of racing to run them itself — two containers both running
+      # `migrate` against a brand-new database at once made Postgres throw
+      # a unique-violation on its own internal catalog (both tried to
+      # CREATE TABLE "users" at the same instant).
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost:8000/up') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     depends_on:
       db:
+        condition: service_healthy
+
+  telegram-bot:
+    build: ./backend-reference
+    # Bypasses docker-entrypoint.sh (which also starts the HTTP server) —
+    # this service's only job is the long-polling loop. Doesn't run its
+    # own migrate: depends_on backend being *healthy* (not just db) already
+    # guarantees migrations are done by the time this starts.
+    entrypoint: ["php", "artisan", "telegram:poll"]
+    environment:
+      APP_ENV: production
+      DB_CONNECTION: pgsql
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:-rutas_gastos}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      QUEUE_CONNECTION: sync
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    volumes:
+      # Same volume as backend — receipt photos the bot downloads need to
+      # land where the web-serving container can actually serve them from.
+      - backend_storage:/var/www/storage/app/public
+    depends_on:
+      backend:
         condition: service_healthy
 
   web-dashboard:

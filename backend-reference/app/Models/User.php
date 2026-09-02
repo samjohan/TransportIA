@@ -21,11 +21,13 @@ class User extends Authenticatable
         'password',
         'telefono',
         'licencia_conducir',
+        'telegram_chat_id',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'telegram_chat_id',
     ];
 
     protected function casts(): array

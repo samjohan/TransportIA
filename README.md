@@ -110,6 +110,22 @@ Prueba el modo offline: DevTools → Network → "Offline", registra un gasto co
 
 Para instalar en Android: agrega íconos reales en `driver-app/public/` (`icon-192.png`, `icon-512.png`), despliega con HTTPS, y Chrome ofrecerá "Agregar a pantalla de inicio" automáticamente.
 
+## Bot de Telegram (alternativa a la PWA para registrar gastos)
+
+Un conductor que prefiera no instalar la app puede registrar gastos hablándole a un bot de Telegram — mismo backend, mismos datos, otra interfaz. Corre como un servicio aparte (`telegram-bot` en ambos `docker-compose*.yml`) que hace *long-polling* contra la API de Telegram (no un webhook — eso requeriría un endpoint HTTPS público, que este proyecto no siempre tiene, p. ej. en `sslip.io`).
+
+**Configuración:**
+1. Crea un bot con [@BotFather](https://t.me/BotFather) en Telegram y copia el token que te da (`123456:ABC-...`).
+2. Local: copia `.env.example` a `.env` (ya está en `.gitignore`) y pon `TELEGRAM_BOT_TOKEN=` ahí. Dokploy: ponlo en la pestaña Environment de tu app — nunca lo subas al repo.
+3. Si dejas `TELEGRAM_BOT_TOKEN` vacío, el servicio simplemente registra un error y termina — no rompe el resto del stack.
+
+**Uso (desde Telegram, no requiere abrir el navegador):**
+1. Busca tu bot y envía `/start`.
+2. La primera vez, vincula tu cuenta: envía tu correo y contraseña de conductor separados por un espacio (`conductor@demo.com password`).
+3. Envía `/gasto` para empezar a registrar uno — el bot pregunta ruta (con botones, solo rutas `pendiente`/`en_curso`), categoría, monto, nota opcional y foto del recibo opcional, y confirma al terminar. `/cancelar` aborta el flujo en cualquier momento.
+
+⚠️ El paso de vinculación (correo + contraseña en un mensaje de chat) es deliberadamente simple para este scaffold — la contraseña queda visible en el historial del chat de Telegram del conductor. Aceptable para una herramienta interna pequeña; si esto crece, vale la pena cambiar a un flujo de vinculación con código de un solo uso en vez de la contraseña real.
+
 ## Desplegar en Dokploy
 
 Usa `docker-compose.dokploy.yml` (no el `docker-compose.yml` de desarrollo local) — apunta la app de Dokploy de tipo "Compose" a este archivo. Es autocontenido: incluye su propio servicio `db` (Postgres), igual que en local, para no depender de una base de datos administrada por Dokploy por separado.
@@ -124,6 +140,7 @@ Usa `docker-compose.dokploy.yml` (no el `docker-compose.yml` de desarrollo local
 | `DB_USERNAME` | no (default `postgres`) | `postgres` |
 | `DB_HOST` | no (default `db`, el servicio de este mismo compose) | solo cámbialo si prefieres apuntar a un Postgres externo (p. ej. `dev-transportia-transportiadb-t4poee`) en vez del `db` incluido aquí |
 | `DB_PORT` | no (default `5432`) | `5432` |
+| `TELEGRAM_BOT_TOKEN` | no (bot simply won't start without it) | token de @BotFather |
 
 Si cambias `DB_HOST` para usar un Postgres externo, el servicio `db` de este archivo queda sin usar — puedes borrar ese bloque del compose si quieres evitar que consuma recursos innecesariamente.
 
