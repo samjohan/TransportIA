@@ -35,6 +35,11 @@ export default defineConfig({
   ],
   server: {
     host: true,
+    // Deployed behind Dokploy/Traefik with a random per-deploy sslip.io (or
+    // later, a real custom) domain — Vite's Host-header allowlist would
+    // otherwise reject every request unless that exact, changing hostname
+    // were hardcoded here.
+    allowedHosts: true,
     proxy: {
       '/api': { target: apiProxyTarget, changeOrigin: true },
       '/storage': { target: apiProxyTarget, changeOrigin: true }
