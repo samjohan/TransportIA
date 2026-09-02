@@ -110,6 +110,27 @@ Prueba el modo offline: DevTools → Network → "Offline", registra un gasto co
 
 Para instalar en Android: agrega íconos reales en `driver-app/public/` (`icon-192.png`, `icon-512.png`), despliega con HTTPS, y Chrome ofrecerá "Agregar a pantalla de inicio" automáticamente.
 
+## Desplegar en Dokploy
+
+Usa `docker-compose.dokploy.yml` (no el `docker-compose.yml` de desarrollo local) — apunta la app de Dokploy de tipo "Compose" a este archivo. A diferencia del local, no incluye un servicio `db`: espera una base de datos Postgres administrada por Dokploy, externa a este stack.
+
+**Configura estas variables en la pestaña Environment de Dokploy — nunca las pongas en el repo:**
+
+| Variable | Ejemplo |
+|---|---|
+| `APP_URL` | `https://api.tudominio.com` |
+| `DB_HOST` | el hostname interno del servicio Postgres (p. ej. `dev-transportia-transportiadb-t4poee`) |
+| `DB_PORT` | `5432` |
+| `DB_DATABASE` | `rutas_gastos` |
+| `DB_USERNAME` | `postgres` |
+| `DB_PASSWORD` | la contraseña real de esa base de datos |
+
+Después de desplegar, asígnale un dominio a cada servicio desde la UI de Dokploy, apuntando al puerto de contenedor correspondiente: `backend` → 8000, `web-dashboard` → 5173, `driver-app` → 5174.
+
+⚠️ Si en algún momento compartiste una contraseña real de base de datos en un chat, documento o commit, trátala como comprometida y rótala — no dependas de que "solo se vio una vez".
+
+**Nota sobre `docker-entrypoint.sh`**: el backend corre el servidor embebido de PHP directamente (`php -S`) en vez de `php artisan serve` — el comando de Artisan reconstruye el entorno de su proceso hijo a partir del `.env` ya parseado por Laravel, no del entorno real del contenedor, así que ignoraba en silencio cualquier `DB_HOST`/`DB_PASSWORD` puesto vía `environment:` de Docker Compose o Dokploy a menos que esos mismos valores ya estuvieran horneados en `.env` al construir la imagen. Con la invocación directa, cualquier variable que pongas en Dokploy sí tiene efecto sin reconstruir la imagen.
+
 ## Próximos pasos sugeridos
 
 - Conectar un proveedor real de OCR en la nube dentro de `ProcesarOcrRecibo`

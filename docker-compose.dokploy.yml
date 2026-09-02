@@ -1,0 +1,60 @@
+# Dokploy deployment — separate from docker-compose.yml (local dev) so
+# neither setup disturbs the other.
+#
+# Unlike local dev, there's no `db` service here: the Postgres database is
+# a Dokploy-managed resource external to this compose stack. Set the six
+# DB_*/APP_URL variables below in Dokploy's Environment tab for this
+# application — never commit real values for these to the repo.
+#
+# Required environment variables (set in Dokploy, not here):
+#   APP_URL       — public URL of the backend, e.g. https://api.example.com
+#   DB_HOST       — the Postgres service's internal hostname
+#                    (e.g. dev-transportia-transportiadb-t4poee)
+#   DB_PORT       — usually 5432
+#   DB_DATABASE   — usually rutas_gastos
+#   DB_USERNAME   — usually postgres
+#   DB_PASSWORD   — the database's actual password
+#
+# After deploying, assign a Dokploy domain to each service below at its
+# listed container port (backend:8000, web-dashboard:5173, driver-app:5174).
+services:
+  backend:
+    build: ./backend-reference
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: pgsql
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:-rutas_gastos}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      QUEUE_CONNECTION: sync
+    expose:
+      - "8000"
+    volumes:
+      # Uploaded receipt photos live under storage/app/public — without a
+      # volume here they'd vanish on every redeploy.
+      - backend_storage:/var/www/storage/app/public
+
+  web-dashboard:
+    build: ./web-dashboard
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    expose:
+      - "5173"
+    depends_on:
+      - backend
+
+  driver-app:
+    build: ./driver-app
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    expose:
+      - "5174"
+    depends_on:
+      - backend
+
+volumes:
+  backend_storage:
