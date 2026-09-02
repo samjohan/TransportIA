@@ -149,7 +149,7 @@ export default function AsignarRuta() {
         <p className="text-sm text-slate-500 mt-1">Crea una nueva ruta y asígnale un presupuesto.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="card p-6 lg:col-span-1 h-fit">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -212,55 +212,59 @@ export default function AsignarRuta() {
           </form>
         </div>
 
-        <div className="card overflow-hidden lg:col-span-2 h-fit">
+        <div className="card overflow-hidden lg:col-span-3 h-fit">
           <div className="px-5 py-4 border-b border-slate-200">
             <h2 className="text-sm font-semibold text-slate-700">Viajes en Curso</h2>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-3">Conductor</th>
-                <th className="px-5 py-3">Origen → Destino</th>
-                <th className="px-5 py-3">Anticipo</th>
-                <th className="px-5 py-3">Estado</th>
-                <th className="px-5 py-3 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rutas.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
-                    No hay rutas todavía.
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <th className="px-5 py-3 whitespace-nowrap">Conductor</th>
+                  <th className="px-5 py-3 whitespace-nowrap">Origen → Destino</th>
+                  <th className="px-5 py-3">Anticipo</th>
+                  <th className="px-5 py-3">Estado</th>
+                  <th className="px-5 py-3 text-right">Acciones</th>
                 </tr>
-              )}
-              {rutas.map((r) => (
-                <tr key={r.uuid} className="hover:bg-slate-50">
-                  <td className="px-5 py-3 font-medium text-slate-800">{r.conductor?.name}</td>
-                  <td className="px-5 py-3 text-slate-600">{r.origen} → {r.destino}</td>
-                  <td className="px-5 py-3">
-                    <AnticipoBar anticipo={r.presupuesto?.monto_asignado} gastado={r.total_gastado} />
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={`badge ${ESTADO_BADGE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
-                      {r.estado}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => abrirDetalle(r)} className="btn-secondary !px-3 !py-1.5">
-                      Detalle
-                    </button>{' '}
-                    <button onClick={() => abrirEditar(r)} className="btn-secondary !px-3 !py-1.5">
-                      Editar
-                    </button>{' '}
-                    <button onClick={() => handleEliminar(r)} className="btn-danger !px-3 !py-1.5">
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rutas.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
+                      No hay rutas todavía.
+                    </td>
+                  </tr>
+                )}
+                {rutas.map((r) => (
+                  <tr key={r.uuid} className="hover:bg-slate-50">
+                    <td className="px-5 py-3 font-medium text-slate-800 whitespace-nowrap">{r.conductor?.name}</td>
+                    <td className="px-5 py-3 text-slate-600 whitespace-nowrap">{r.origen} → {r.destino}</td>
+                    <td className="px-5 py-3">
+                      <AnticipoBar anticipo={r.presupuesto?.monto_asignado} gastado={r.total_gastado} />
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`badge ${ESTADO_BADGE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
+                        {r.estado}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <button onClick={() => abrirDetalle(r)} className="btn-secondary !px-3 !py-1.5">
+                          Detalle
+                        </button>
+                        <button onClick={() => abrirEditar(r)} className="btn-secondary !px-3 !py-1.5">
+                          Editar
+                        </button>
+                        <button onClick={() => handleEliminar(r)} className="btn-danger !px-3 !py-1.5">
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

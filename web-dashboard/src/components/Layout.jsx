@@ -74,7 +74,7 @@ export default function Layout({ children }) {
       </aside>
 
       <main className="flex-1 min-w-0">
-        <div className="max-w-6xl mx-auto px-6 py-8 lg:px-10">{children}</div>
+        <div className="max-w-screen-2xl px-6 py-8 lg:px-10">{children}</div>
       </main>
     </div>
   )
