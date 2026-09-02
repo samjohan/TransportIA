@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
-import { pullRutasAsignadas } from '../sync'
+import { fullSync } from '../sync'
 import RegistrarGasto from './RegistrarGasto'
 import { formatCOP } from '../format'
 
@@ -32,9 +32,12 @@ export default function InicioConductor() {
     if (!navigator.onLine) return
     setActualizando(true)
     try {
-      await pullRutasAsignadas()
+      // Push first (any gastos still queued from this session) then pull —
+      // pull-only left queued gastos stuck until an app reload or an
+      // `online` event happened to fire.
+      await fullSync()
     } catch (err) {
-      console.warn('No se pudo actualizar la lista de rutas:', err.message)
+      console.warn('No se pudo sincronizar:', err.message)
     } finally {
       setActualizando(false)
     }

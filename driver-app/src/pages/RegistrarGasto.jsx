@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { db, queueMutation } from '../db'
 import { reconocerRecibo } from '../ocr'
+import { pushQueuedMutations } from '../sync'
 import MoneyInput from '../components/MoneyInput'
 
 const CATEGORIAS = [
@@ -62,6 +63,15 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
     // Local-first: save immediately, regardless of connectivity.
     await db.gastos.put(registro)
     await queueMutation('gastos', registro, fotoBlob)
+
+    // Nothing else was actually pushing queued gastos to the server after
+    // this point — only a fresh app load or an `online` browser event did.
+    // A gasto registered while the tab stayed open and online just sat
+    // queued indefinitely. Try right away if we're online; if it fails
+    // (or we're offline) it stays queued for the next sync as before.
+    if (navigator.onLine) {
+      pushQueuedMutations().catch((err) => console.warn('No se pudo sincronizar el gasto:', err.message))
+    }
 
     setMonto(''); setCategoria('combustible'); setNota('')
     setFotoBlob(null); setFotoPreview(null); setMontoOcr(null)
