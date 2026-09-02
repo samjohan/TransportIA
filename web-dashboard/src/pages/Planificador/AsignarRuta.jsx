@@ -119,6 +119,17 @@ export default function AsignarRuta() {
     }
   }
 
+  async function handleEliminar(ruta) {
+    if (!confirm(`¿Eliminar el viaje ${ruta.origen} → ${ruta.destino}? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/rutas/${ruta.uuid}`)
+      await cargarRutas()
+    } catch (err) {
+      const msg = err.response?.data?.errors?.ruta?.[0] || 'No se pudo eliminar el viaje.'
+      alert(msg)
+    }
+  }
+
   async function abrirDetalle(ruta) {
     setDetalle(ruta)
     setGastosDetalle([])
@@ -241,6 +252,9 @@ export default function AsignarRuta() {
                     </button>{' '}
                     <button onClick={() => abrirEditar(r)} className="btn-secondary !px-3 !py-1.5">
                       Editar
+                    </button>{' '}
+                    <button onClick={() => handleEliminar(r)} className="btn-danger !px-3 !py-1.5">
+                      Eliminar
                     </button>
                   </td>
                 </tr>

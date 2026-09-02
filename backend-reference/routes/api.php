@@ -18,6 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rutas', [RutaController::class, 'index']);
     Route::post('/rutas', [RutaController::class, 'store'])->middleware('role:planificador');
     Route::put('/rutas/{uuid}', [RutaController::class, 'update'])->middleware('role:planificador');
+    Route::delete('/rutas/{uuid}', [RutaController::class, 'destroy'])->middleware('role:planificador');
 
     // Ubicaciones: lista de búsqueda para el selector de origen/destino
     Route::get('/ubicaciones', [UbicacionController::class, 'index']);

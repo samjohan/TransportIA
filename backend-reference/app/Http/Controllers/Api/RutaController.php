@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Gasto;
 use App\Models\Presupuesto;
 use App\Models\Ruta;
 use App\Models\Ubicacion;
@@ -110,5 +111,23 @@ class RutaController extends Controller
         }
 
         return response()->json($ruta->fresh(['presupuesto', 'conductor']));
+    }
+
+    // DELETE /api/rutas/{uuid} — solo planificador.
+    public function destroy(string $uuid)
+    {
+        $ruta = Ruta::findOrFail($uuid);
+
+        if (Gasto::where('ruta_uuid', $ruta->uuid)->exists()) {
+            throw ValidationException::withMessages([
+                'ruta' => ['No se puede eliminar: este viaje ya tiene gastos registrados.'],
+            ]);
+        }
+
+        // presupuestos/gastos cascadean por FK (ver migraciones), pero el
+        // guard anterior ya impide llegar aquí con gastos existentes.
+        $ruta->delete();
+
+        return response()->noContent();
     }
 }
