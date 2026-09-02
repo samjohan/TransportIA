@@ -3,6 +3,7 @@ import { api } from '../../api'
 import { formatCOP } from '../../format'
 import MoneyInput from '../../components/MoneyInput'
 import LocationCombobox from '../../components/LocationCombobox'
+import AnticipoBar from '../../components/AnticipoBar'
 
 const ESTADO_BADGE = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -12,6 +13,11 @@ const ESTADO_BADGE = {
 }
 
 const ESTADOS = ['pendiente', 'en_curso', 'completada', 'cancelada']
+
+const CATEGORIAS = {
+  combustible: 'Combustible', peaje: 'Peaje', comida: 'Comida',
+  hospedaje: 'Hospedaje', mantenimiento: 'Mantenimiento', otro: 'Otro',
+}
 
 // Ruta's fecha_salida comes back as a full ISO string (with seconds/zone);
 // <input type="datetime-local"> needs exactly "YYYY-MM-DDTHH:mm".
@@ -36,6 +42,10 @@ export default function AsignarRuta() {
   const [formEdicion, setFormEdicion] = useState(null)
   const [errorEdicion, setErrorEdicion] = useState('')
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
+
+  const [detalle, setDetalle] = useState(null) // ruta cuyo detalle se muestra, o null
+  const [gastosDetalle, setGastosDetalle] = useState([])
+  const [cargandoDetalle, setCargandoDetalle] = useState(false)
 
   async function cargarRutas() {
     const { data } = await api.get('/rutas')
@@ -106,6 +116,18 @@ export default function AsignarRuta() {
       setErrorEdicion(msg)
     } finally {
       setGuardandoEdicion(false)
+    }
+  }
+
+  async function abrirDetalle(ruta) {
+    setDetalle(ruta)
+    setGastosDetalle([])
+    setCargandoDetalle(true)
+    try {
+      const { data } = await api.get('/gastos', { params: { ruta_uuid: ruta.uuid } })
+      setGastosDetalle(data)
+    } finally {
+      setCargandoDetalle(false)
     }
   }
 
@@ -188,7 +210,7 @@ export default function AsignarRuta() {
               <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <th className="px-5 py-3">Conductor</th>
                 <th className="px-5 py-3">Origen → Destino</th>
-                <th className="px-5 py-3">Presupuesto</th>
+                <th className="px-5 py-3">Anticipo</th>
                 <th className="px-5 py-3">Estado</th>
                 <th className="px-5 py-3 text-right">Acciones</th>
               </tr>
@@ -205,15 +227,18 @@ export default function AsignarRuta() {
                 <tr key={r.uuid} className="hover:bg-slate-50">
                   <td className="px-5 py-3 font-medium text-slate-800">{r.conductor?.name}</td>
                   <td className="px-5 py-3 text-slate-600">{r.origen} → {r.destino}</td>
-                  <td className="px-5 py-3 text-slate-600">
-                    {formatCOP(r.presupuesto?.monto_asignado)}
+                  <td className="px-5 py-3">
+                    <AnticipoBar anticipo={r.presupuesto?.monto_asignado} gastado={r.total_gastado} />
                   </td>
                   <td className="px-5 py-3">
                     <span className={`badge ${ESTADO_BADGE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
                       {r.estado}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => abrirDetalle(r)} className="btn-secondary !px-3 !py-1.5">
+                      Detalle
+                    </button>{' '}
                     <button onClick={() => abrirEditar(r)} className="btn-secondary !px-3 !py-1.5">
                       Editar
                     </button>
@@ -292,6 +317,82 @@ export default function AsignarRuta() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {detalle && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+          <div className="card w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {detalle.origen} → {detalle.destino}
+                </h2>
+                <p className="text-sm text-slate-500">{detalle.conductor?.name}</p>
+              </div>
+              <span className={`badge ${ESTADO_BADGE[detalle.estado] || 'bg-slate-100 text-slate-600'}`}>
+                {detalle.estado}
+              </span>
+            </div>
+
+            <div className="card bg-slate-50 p-4 my-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">
+                Anticipo vs. gastado
+              </p>
+              <AnticipoBar anticipo={detalle.presupuesto?.monto_asignado} gastado={detalle.total_gastado} />
+            </div>
+
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">Gastos registrados</h3>
+            <div className="overflow-x-auto -mx-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <th className="px-6 py-2">Fecha</th>
+                    <th className="px-6 py-2">Categoría</th>
+                    <th className="px-6 py-2">Monto</th>
+                    <th className="px-6 py-2">Nota</th>
+                    <th className="px-6 py-2">Recibo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cargandoDetalle && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-6 text-center text-slate-400">Cargando…</td>
+                    </tr>
+                  )}
+                  {!cargandoDetalle && gastosDetalle.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-6 text-center text-slate-400">
+                        Este viaje todavía no tiene gastos registrados.
+                      </td>
+                    </tr>
+                  )}
+                  {gastosDetalle.map((g) => (
+                    <tr key={g.uuid}>
+                      <td className="px-6 py-2 text-slate-600">{new Date(g.created_at).toLocaleDateString('es')}</td>
+                      <td className="px-6 py-2 text-slate-600">
+                        {CATEGORIAS[g.categoria] || g.categoria}
+                        {g.ocr_discrepancia && (
+                          <span className="badge bg-red-100 text-red-700 ml-2">Discrepancia OCR</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-2 text-slate-600">{formatCOP(g.monto)}</td>
+                      <td className="px-6 py-2 text-slate-500">{g.nota || '—'}</td>
+                      <td className="px-6 py-2">
+                        {g.recibo_path
+                          ? <a href={`/storage/${g.recibo_path}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Ver</a>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <button onClick={() => setDetalle(null)} className="btn-secondary">Cerrar</button>
+            </div>
           </div>
         </div>
       )}

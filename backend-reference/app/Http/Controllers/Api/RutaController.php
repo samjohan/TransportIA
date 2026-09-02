@@ -18,7 +18,9 @@ class RutaController extends Controller
     {
         $user = $request->user();
 
-        $query = Ruta::with(['presupuesto', 'conductor']);
+        // total_gastado backs the anticipo-vs-gastado comparison in the
+        // planificador's grid — sum of this route's gastos, not a stored column.
+        $query = Ruta::with(['presupuesto', 'conductor'])->withSum('gastos as total_gastado', 'monto');
 
         if ($user->hasRole('conductor')) {
             $query->where('conductor_id', $user->id);
