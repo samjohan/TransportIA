@@ -7,3 +7,19 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
+
+// A dead/invalid token (e.g. the backend's database was reset, or the
+// token just expired) makes every request 401 forever with no visible
+// error. Force back to the login screen instead so the user gets a fresh,
+// working token.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.reload()
+    }
+    return Promise.reject(error)
+  }
+)
