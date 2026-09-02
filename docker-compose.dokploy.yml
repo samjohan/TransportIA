@@ -1,23 +1,42 @@
 # Dokploy deployment — separate from docker-compose.yml (local dev) so
 # neither setup disturbs the other.
 #
-# Unlike local dev, there's no `db` service here: the Postgres database is
-# a Dokploy-managed resource external to this compose stack. Set the six
-# DB_*/APP_URL variables below in Dokploy's Environment tab for this
-# application — never commit real values for these to the repo.
+# Self-contained: includes its own Postgres service (db), same as local
+# dev, so you don't need to separately provision a Dokploy-managed
+# database. Set DB_PASSWORD (and optionally DB_DATABASE/DB_USERNAME) in
+# Dokploy's Environment tab for this application — never commit real
+# values for these to the repo. If you'd rather point at an external
+# Postgres instead of this db service, override DB_HOST/DB_PORT to that
+# database's address and just don't use the db service below.
 #
 # Required environment variables (set in Dokploy, not here):
 #   APP_URL       — public URL of the backend, e.g. https://api.example.com
-#   DB_HOST       — the Postgres service's internal hostname
-#                    (e.g. dev-transportia-transportiadb-t4poee)
-#   DB_PORT       — usually 5432
-#   DB_DATABASE   — usually rutas_gastos
-#   DB_USERNAME   — usually postgres
-#   DB_PASSWORD   — the database's actual password
+#   DB_PASSWORD   — the database password (used by both the db service and
+#                   the backend's connection — keep them in sync)
+#
+# Optional (sensible defaults below):
+#   DB_DATABASE   — default rutas_gastos
+#   DB_USERNAME   — default postgres
+#   DB_HOST       — default db (this compose file's own Postgres service)
+#   DB_PORT       — default 5432
 #
 # After deploying, assign a Dokploy domain to each service below at its
 # listed container port (backend:8000, web-dashboard:5173, driver-app:5174).
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-rutas_gastos}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend-reference
     environment:
@@ -25,7 +44,7 @@ services:
       APP_DEBUG: "false"
       APP_URL: ${APP_URL}
       DB_CONNECTION: pgsql
-      DB_HOST: ${DB_HOST}
+      DB_HOST: ${DB_HOST:-db}
       DB_PORT: ${DB_PORT:-5432}
       DB_DATABASE: ${DB_DATABASE:-rutas_gastos}
       DB_USERNAME: ${DB_USERNAME:-postgres}
@@ -37,6 +56,9 @@ services:
       # Uploaded receipt photos live under storage/app/public — without a
       # volume here they'd vanish on every redeploy.
       - backend_storage:/var/www/storage/app/public
+    depends_on:
+      db:
+        condition: service_healthy
 
   web-dashboard:
     build: ./web-dashboard
@@ -58,3 +80,4 @@ services:
 
 volumes:
   backend_storage:
+  db_data:

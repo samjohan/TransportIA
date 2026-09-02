@@ -112,18 +112,20 @@ Para instalar en Android: agrega íconos reales en `driver-app/public/` (`icon-1
 
 ## Desplegar en Dokploy
 
-Usa `docker-compose.dokploy.yml` (no el `docker-compose.yml` de desarrollo local) — apunta la app de Dokploy de tipo "Compose" a este archivo. A diferencia del local, no incluye un servicio `db`: espera una base de datos Postgres administrada por Dokploy, externa a este stack.
+Usa `docker-compose.dokploy.yml` (no el `docker-compose.yml` de desarrollo local) — apunta la app de Dokploy de tipo "Compose" a este archivo. Es autocontenido: incluye su propio servicio `db` (Postgres), igual que en local, para no depender de una base de datos administrada por Dokploy por separado.
 
 **Configura estas variables en la pestaña Environment de Dokploy — nunca las pongas en el repo:**
 
-| Variable | Ejemplo |
-|---|---|
-| `APP_URL` | `https://api.tudominio.com` |
-| `DB_HOST` | el hostname interno del servicio Postgres (p. ej. `dev-transportia-transportiadb-t4poee`) |
-| `DB_PORT` | `5432` |
-| `DB_DATABASE` | `rutas_gastos` |
-| `DB_USERNAME` | `postgres` |
-| `DB_PASSWORD` | la contraseña real de esa base de datos |
+| Variable | Requerida | Ejemplo |
+|---|---|---|
+| `APP_URL` | sí | `https://api.tudominio.com` |
+| `DB_PASSWORD` | sí | la contraseña que quieras para Postgres — la usan tanto el servicio `db` como la conexión del backend |
+| `DB_DATABASE` | no (default `rutas_gastos`) | `rutas_gastos` |
+| `DB_USERNAME` | no (default `postgres`) | `postgres` |
+| `DB_HOST` | no (default `db`, el servicio de este mismo compose) | solo cámbialo si prefieres apuntar a un Postgres externo (p. ej. `dev-transportia-transportiadb-t4poee`) en vez del `db` incluido aquí |
+| `DB_PORT` | no (default `5432`) | `5432` |
+
+Si cambias `DB_HOST` para usar un Postgres externo, el servicio `db` de este archivo queda sin usar — puedes borrar ese bloque del compose si quieres evitar que consuma recursos innecesariamente.
 
 Después de desplegar, asígnale un dominio a cada servicio desde la UI de Dokploy, apuntando al puerto de contenedor correspondiente: `backend` → 8000, `web-dashboard` → 5173, `driver-app` → 5174.
 
