@@ -42,6 +42,7 @@ class GastoController extends Controller
             'monto_ocr' => 'nullable|numeric', // on-device Tesseract.js reading
             'creado_offline_en' => 'nullable|date',
             'recibo' => 'nullable|image|max:8192',
+            'recibo_2' => 'nullable|image|max:8192', // second photo, e.g. the reverse side
         ]);
 
         $reciboPath = null;
@@ -52,6 +53,11 @@ class GastoController extends Controller
             // private disk like 's3', swap that link for a signed URL
             // (Storage::disk('s3')->temporaryUrl(...)) instead.
             $reciboPath = $request->file('recibo')->store('recibos', 'public');
+        }
+
+        $reciboPath2 = null;
+        if ($request->hasFile('recibo_2')) {
+            $reciboPath2 = $request->file('recibo_2')->store('recibos', 'public');
         }
 
         // Idempotent upsert: the driver app may retry this call if the
@@ -70,6 +76,7 @@ class GastoController extends Controller
                 'monto_ocr' => $data['monto_ocr'] ?? null,
                 'creado_offline_en' => $data['creado_offline_en'] ?? null,
                 'recibo_path' => $reciboPath ?? null,
+                'recibo_path_2' => $reciboPath2 ?? null,
             ]
         );
 

@@ -15,6 +15,9 @@ export async function pushQueuedMutations() {
       if (job.fotoBlob) {
         form.append('recibo', job.fotoBlob, `${job.payload.uuid}.jpg`)
       }
+      if (job.fotoBlob2) {
+        form.append('recibo_2', job.fotoBlob2, `${job.payload.uuid}-2.jpg`)
+      }
 
       await api.post(`/${job.entity}`, form, {
         headers: { 'Content-Type': 'multipart/form-data' }

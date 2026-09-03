@@ -11,13 +11,14 @@ db.version(1).stores({
   syncQueue: '++id, entity, created_at'
 })
 
-export async function queueMutation(entity, payload, fotoBlob = null) {
+export async function queueMutation(entity, payload, fotoBlob = null, fotoBlob2 = null) {
   return db.syncQueue.add({
     entity,
     payload,
     // Blobs (receipt photos) go straight into IndexedDB — no size limit
     // issue like localStorage would have.
     fotoBlob,
+    fotoBlob2,
     created_at: new Date().toISOString()
   })
 }

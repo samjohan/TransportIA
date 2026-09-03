@@ -1,0 +1,549 @@
+openapi: 3.0.3
+info:
+  title: TransportIA API
+  version: "1.0.0"
+  description: |
+    REST API for TransportIA (rutas, gastos, presupuestos). Generated from
+    `backend-reference/routes/api.php` and its controllers — treat those as
+    the source of truth if this ever drifts.
+
+    Auth is Laravel Sanctum personal access tokens (`Authorization: Bearer
+    <token>`), obtained from `POST /login`. Every route except `/login`
+    requires one. Several routes are further gated by role
+    (`conductor` | `planificador` | `contable`) via `role:` middleware —
+    noted per-operation below as `x-required-role`.
+servers:
+  - url: /api
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: rutas
+  - name: ubicaciones
+  - name: conductores
+  - name: gastos
+  - name: reportes
+
+paths:
+  /login:
+    post:
+      tags: [auth]
+      summary: Log in and get an API token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '422':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current token
+      responses:
+        '204':
+          description: Logged out
+
+  /me:
+    get:
+      tags: [auth]
+      summary: Current authenticated user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthUser' }
+
+  /rutas:
+    get:
+      tags: [rutas]
+      summary: List rutas
+      description: >-
+        Planificador/contable see every ruta; a conductor sees only their
+        own. Each ruta includes `total_gastado` (sum of its gastos' monto,
+        computed — not a stored column).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Ruta' }
+    post:
+      tags: [rutas]
+      summary: Create a ruta (assign a trip to a conductor)
+      x-required-role: planificador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conductor_id, origen, destino, monto_asignado]
+              properties:
+                conductor_id: { type: integer, description: Must belong to a user with the conductor role }
+                origen: { type: string, maxLength: 255 }
+                destino: { type: string, maxLength: 255 }
+                fecha_salida: { type: string, format: date-time, nullable: true }
+                monto_asignado:
+                  type: number
+                  format: float
+                  minimum: 0
+                  description: Anticipo — creates the ruta's Presupuesto (currency is always COP)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ruta' }
+        '422':
+          description: Validation error, or conductor_id isn't a conductor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /rutas/{uuid}:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [rutas]
+      summary: Update a ruta
+      description: All fields optional — only what's sent gets updated.
+      x-required-role: planificador
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conductor_id: { type: integer }
+                origen: { type: string, maxLength: 255 }
+                destino: { type: string, maxLength: 255 }
+                fecha_salida: { type: string, format: date-time, nullable: true }
+                monto_asignado: { type: number, format: float, minimum: 0 }
+                estado: { $ref: '#/components/schemas/EstadoRuta' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ruta' }
+        '404':
+          description: Not found
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+    delete:
+      tags: [rutas]
+      summary: Delete a ruta
+      description: Rejected if the ruta already has gastos registered against it.
+      x-required-role: planificador
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found
+        '422':
+          description: Ruta already has gastos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /ubicaciones:
+    get:
+      tags: [ubicaciones]
+      summary: Search origen/destino locations
+      description: >-
+        Read-only autocomplete list. Grows on its own — every new
+        origen/destino from `POST /rutas` gets added here automatically.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Case-insensitive substring filter on nombre
+      responses:
+        '200':
+          description: OK (max 50 rows, ordered by nombre)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Ubicacion' }
+
+  /conductores:
+    get:
+      tags: [conductores]
+      summary: List conductores
+      x-required-role: planificador
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Conductor' }
+    post:
+      tags: [conductores]
+      summary: Create a conductor account
+      x-required-role: planificador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, telefono]
+              properties:
+                name: { type: string, maxLength: 255 }
+                email: { type: string, format: email, description: Must be unique }
+                password: { type: string, format: password, minLength: 8 }
+                telefono:
+                  type: string
+                  maxLength: 255
+                  description: >-
+                    Must be unique — this is what the Telegram bot matches
+                    against to link a conductor's account (last 10 digits,
+                    +57 optional).
+                licencia_conducir: { type: string, maxLength: 255, nullable: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conductor' }
+        '422':
+          description: Validation error (e.g. duplicate email/telefono)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /conductores/{conductor}:
+    parameters:
+      - name: conductor
+        in: path
+        required: true
+        schema: { type: integer }
+        description: The conductor's user id
+    put:
+      tags: [conductores]
+      summary: Update a conductor account
+      description: All fields optional. Omit password to leave it unchanged.
+      x-required-role: planificador
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 255 }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8, nullable: true }
+                telefono: { type: string, maxLength: 255 }
+                licencia_conducir: { type: string, maxLength: 255, nullable: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conductor' }
+        '404':
+          description: Not found, or the id isn't a conductor
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+    delete:
+      tags: [conductores]
+      summary: Delete a conductor account
+      description: Rejected if the conductor has rutas assigned.
+      x-required-role: planificador
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found, or the id isn't a conductor
+        '422':
+          description: Conductor still has rutas assigned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /gastos:
+    get:
+      tags: [gastos]
+      summary: List gastos
+      description: Contable/planificador see every gasto; a conductor sees only their own.
+      parameters:
+        - name: ruta_uuid
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Gasto' }
+    post:
+      tags: [gastos]
+      summary: Register a gasto
+      description: >-
+        Used by the driver PWA's offline sync queue. Idempotent on `uuid` —
+        safe to retry. `multipart/form-data` when a receipt photo is
+        attached, otherwise plain JSON works too.
+      x-required-role: conductor
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/GastoInput' }
+          application/json:
+            schema: { $ref: '#/components/schemas/GastoInput' }
+      responses:
+        '201':
+          description: Created (or updated, if uuid already existed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Gasto' }
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /reportes/presupuesto-vs-gasto:
+    get:
+      tags: [reportes]
+      summary: Anticipo vs. gastado, per ruta
+      x-required-role: contable
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ruta: { type: string, example: "Bogotá → Medellín" }
+                    presupuesto: { type: number, format: float }
+                    gastado: { type: number, format: float }
+
+  /reportes/gastos-por-categoria:
+    get:
+      tags: [reportes]
+      summary: Total gastado, grouped by categoría
+      x-required-role: contable
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    categoria: { $ref: '#/components/schemas/Categoria' }
+                    total: { type: number, format: float }
+
+  /reportes/gastos-por-conductor:
+    get:
+      tags: [reportes]
+      summary: Total gastado, grouped by conductor
+      x-required-role: contable
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    conductor: { type: string }
+                    total: { type: number, format: float }
+
+  /reportes/discrepancias:
+    get:
+      tags: [reportes]
+      summary: Gastos flagged by the server-side OCR "second opinion" pass
+      description: >-
+        Gastos where the server's independent QR/OCR reading of the
+        receipt (ProcesarOcrRecibo, monto_ocr_servidor) disagreed with the
+        monto the conductor confirmed by more than 5%.
+      x-required-role: contable
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Gasto' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum personal access token
+
+  schemas:
+    Role:
+      type: string
+      enum: [conductor, planificador, contable]
+
+    EstadoRuta:
+      type: string
+      enum: [pendiente, en_curso, completada, cancelada]
+
+    Categoria:
+      type: string
+      enum: [combustible, peaje, comida, hospedaje, mantenimiento, otro]
+
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    AuthUser:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string, description: Sanctum plain-text token — send as "Bearer <token>" }
+        user: { $ref: '#/components/schemas/AuthUser' }
+
+    Conductor:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        telefono: { type: string, nullable: true }
+        licencia_conducir: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Ubicacion:
+      type: object
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+
+    Presupuesto:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        ruta_uuid: { type: string, format: uuid }
+        monto_asignado: { type: number, format: float }
+        moneda: { type: string, example: COP }
+
+    Ruta:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        conductor_id: { type: integer }
+        planificador_id: { type: integer }
+        origen: { type: string }
+        destino: { type: string }
+        fecha_salida: { type: string, format: date-time, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoRuta' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        presupuesto: { $ref: '#/components/schemas/Presupuesto' }
+        conductor: { $ref: '#/components/schemas/Conductor' }
+        total_gastado:
+          type: number
+          format: float
+          nullable: true
+          description: Only present on GET /rutas — sum of this ruta's gastos.monto
+
+    GastoInput:
+      type: object
+      required: [uuid, ruta_uuid, monto, categoria]
+      properties:
+        uuid: { type: string, format: uuid, description: Client-generated; makes the request idempotent }
+        ruta_uuid: { type: string, format: uuid }
+        monto: { type: number, format: float, minimum: 0 }
+        impuestos: { type: number, format: float, minimum: 0, nullable: true }
+        categoria: { $ref: '#/components/schemas/Categoria' }
+        nota: { type: string, nullable: true }
+        factura_numero: { type: string, nullable: true, description: Vendor's invoice number, off the receipt }
+        nit: { type: string, nullable: true, description: Vendor's NIT, off the receipt }
+        monto_ocr: { type: number, format: float, nullable: true, description: On-device (tesseract.js) reading }
+        creado_offline_en: { type: string, format: date-time, nullable: true }
+        recibo:
+          type: string
+          format: binary
+          nullable: true
+          description: Receipt photo, image, max 8MB (multipart/form-data only)
+        recibo_2:
+          type: string
+          format: binary
+          nullable: true
+          description: Second photo, e.g. the reverse side, image, max 8MB (multipart/form-data only)
+
+    Gasto:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        ruta_uuid: { type: string, format: uuid }
+        conductor_id: { type: integer }
+        monto: { type: number, format: float }
+        impuestos: { type: number, format: float, nullable: true }
+        categoria: { $ref: '#/components/schemas/Categoria' }
+        nota: { type: string, nullable: true }
+        factura_numero: { type: string, nullable: true }
+        nit: { type: string, nullable: true }
+        monto_ocr: { type: number, format: float, nullable: true, description: On-device (PWA) or bot-side (Telegram) first-pass reading }
+        monto_ocr_servidor: { type: number, format: float, nullable: true, description: Server "second opinion" pass (ProcesarOcrRecibo) }
+        ocr_discrepancia: { type: boolean, description: True if monto and monto_ocr_servidor differ by more than 5% }
+        recibo_path: { type: string, nullable: true, description: Relative path under /storage }
+        recibo_path_2: { type: string, nullable: true, description: Second photo (e.g. reverse side) — Telegram bot only }
+        creado_offline_en: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        ruta: { $ref: '#/components/schemas/Ruta' }
+        conductor: { $ref: '#/components/schemas/Conductor' }

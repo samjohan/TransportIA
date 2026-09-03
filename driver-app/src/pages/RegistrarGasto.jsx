@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { db, queueMutation } from '../db'
 import { reconocerRecibo } from '../ocr'
 import { pushQueuedMutations } from '../sync'
@@ -38,6 +38,8 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
   const [nota, setNota] = useState('')
   const [fotoBlob, setFotoBlob] = useState(null)
   const [fotoPreview, setFotoPreview] = useState(null)
+  const [fotoBlob2, setFotoBlob2] = useState(null)
+  const [fotoPreview2, setFotoPreview2] = useState(null)
   const [montoOcr, setMontoOcr] = useState(null)
   const [impuestos, setImpuestos] = useState(null)
   const [facturaNumero, setFacturaNumero] = useState(null)
@@ -45,28 +47,39 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
   const [procesandoOcr, setProcesandoOcr] = useState(false)
   const [guardado, setGuardado] = useState(false)
 
-  async function handleFoto(e) {
-    const file = e.target.files[0]
-    if (!file) return
+  // Mirrors the state values so a second photo's reading can check "did
+  // the first photo already find this?" without racing a stale closure —
+  // refs are always current even if both photos are picked in quick
+  // succession, before either one's OCR pass has resolved.
+  const montoOcrRef = useRef(null)
+  const impuestosRef = useRef(null)
+  const facturaRef = useRef(null)
+  const nitRef = useRef(null)
 
-    setFotoBlob(file)
-    setFotoPreview(URL.createObjectURL(file))
+  // Runs fully on-device (QR first, tesseract.js OCR as fallback) — works
+  // with no internet connection. Called for both photos; whichever gets
+  // read first "wins" a field, the second only fills in what's still
+  // missing (e.g. front has the total, reverse has the NIT).
+  async function leerYFusionar(file) {
     setProcesandoOcr(true)
-
     try {
-      // Runs fully on-device — works with no internet connection.
       const { montoDetectado, impuestoDetectado, facturaDetectada, nitDetectado } = await reconocerRecibo(file)
-      if (montoDetectado) {
+
+      if (montoDetectado && !montoOcrRef.current) {
+        montoOcrRef.current = montoDetectado
         setMontoOcr(montoDetectado)
         setMonto(montoDetectado) // pre-fill; driver can still edit
       }
-      if (impuestoDetectado) {
+      if (impuestoDetectado && !impuestosRef.current) {
+        impuestosRef.current = impuestoDetectado
         setImpuestos(impuestoDetectado)
       }
-      if (facturaDetectada) {
+      if (facturaDetectada && !facturaRef.current) {
+        facturaRef.current = facturaDetectada
         setFacturaNumero(facturaDetectada)
       }
-      if (nitDetectado) {
+      if (nitDetectado && !nitRef.current) {
+        nitRef.current = nitDetectado
         setNit(nitDetectado)
       }
     } catch (err) {
@@ -74,6 +87,24 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
     } finally {
       setProcesandoOcr(false)
     }
+  }
+
+  async function handleFoto(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setFotoBlob(file)
+    setFotoPreview(URL.createObjectURL(file))
+    await leerYFusionar(file)
+  }
+
+  async function handleFoto2(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setFotoBlob2(file)
+    setFotoPreview2(URL.createObjectURL(file))
+    await leerYFusionar(file)
   }
 
   async function handleSubmit(e) {
@@ -96,7 +127,7 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
 
     // Local-first: save immediately, regardless of connectivity.
     await db.gastos.put(registro)
-    await queueMutation('gastos', registro, fotoBlob)
+    await queueMutation('gastos', registro, fotoBlob, fotoBlob2)
 
     // Nothing else was actually pushing queued gastos to the server after
     // this point — only a fresh app load or an `online` browser event did.
@@ -108,8 +139,9 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
     }
 
     setMonto(''); setCategoria('combustible'); setNota('')
-    setFotoBlob(null); setFotoPreview(null); setMontoOcr(null); setImpuestos(null)
-    setFacturaNumero(null); setNit(null)
+    setFotoBlob(null); setFotoPreview(null); setFotoBlob2(null); setFotoPreview2(null)
+    setMontoOcr(null); setImpuestos(null); setFacturaNumero(null); setNit(null)
+    montoOcrRef.current = null; impuestosRef.current = null; facturaRef.current = null; nitRef.current = null
     onGuardado?.()
 
     setGuardado(true)
@@ -133,6 +165,19 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
           {fotoPreview && (
             <img src={fotoPreview} alt="Recibo" className="mt-3 max-h-48 rounded-lg border border-slate-200" />
           )}
+
+          {fotoBlob && (
+            <label className="mt-3 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 px-4 py-4 text-sm text-slate-500 cursor-pointer hover:border-brand-400 hover:text-brand-600 transition-colors">
+              <span aria-hidden="true">📷</span>
+              {fotoBlob2 ? 'Cambiar segunda foto' : 'Agregar segunda foto (ej. reverso)'}
+              <input type="file" accept="image/*" capture="environment" onChange={handleFoto2} className="hidden" />
+            </label>
+          )}
+
+          {fotoPreview2 && (
+            <img src={fotoPreview2} alt="Recibo (reverso)" className="mt-3 max-h-48 rounded-lg border border-slate-200" />
+          )}
+
           {procesandoOcr && (
             <p className="mt-2 text-sm text-slate-500">Leyendo el recibo…</p>
           )}
