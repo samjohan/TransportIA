@@ -120,11 +120,11 @@ Un conductor que prefiera no instalar la app puede registrar gastos hablándole 
 3. Si dejas `TELEGRAM_BOT_TOKEN` vacío, el servicio simplemente registra un error y termina — no rompe el resto del stack.
 
 **Uso (desde Telegram, no requiere abrir el navegador):**
-1. Busca tu bot y envía `/start`.
-2. La primera vez, vincula tu cuenta: envía tu correo y contraseña de conductor separados por un espacio (`conductor@demo.com password`).
-3. Envía `/gasto` para empezar a registrar uno — el bot pregunta ruta (con botones, solo rutas `pendiente`/`en_curso`), categoría, monto, nota opcional y foto del recibo opcional, y confirma al terminar. `/cancelar` aborta el flujo en cualquier momento.
+1. Busca tu bot y envía `/start` (o `/empezar`).
+2. La primera vez, vincula tu cuenta: envía el número de celular con el que te registró tu planificador en `/planificador` → Conductores (ej: `3001234567`, con o sin `+57`).
+3. Envía `/gasto` (o toca el botón "📝 Registrar gasto") para empezar a registrar uno — el bot pide primero la foto del recibo (o "Sin foto"), la lee con OCR (Tesseract, con soporte de español) y, si detecta un monto, lo ofrece como botón más adelante en vez de tener que escribirlo. Después pregunta ruta (solo rutas `pendiente`/`en_curso`), categoría, monto (sugerido o escrito) y nota opcional, y confirma al terminar. `/cancelar` aborta el flujo en cualquier momento.
 
-⚠️ El paso de vinculación (correo + contraseña en un mensaje de chat) es deliberadamente simple para este scaffold — la contraseña queda visible en el historial del chat de Telegram del conductor. Aceptable para una herramienta interna pequeña; si esto crece, vale la pena cambiar a un flujo de vinculación con código de un solo uso en vez de la contraseña real.
+⚠️ La vinculación por número de celular no verifica que quien lo envía sea realmente el dueño de ese teléfono (cualquiera que conozca el número de otro conductor podría vincularlo a su propio Telegram) — igual de simple que el esquema anterior de correo+contraseña, pero sin dejar una contraseña visible en el historial del chat. Aceptable para una herramienta interna pequeña; si esto crece, vale la pena pedir confirmación por el botón nativo de Telegram "Compartir contacto" (`request_contact`), que sí verifica el número contra la cuenta de Telegram.
 
 ## Desplegar en Dokploy
 

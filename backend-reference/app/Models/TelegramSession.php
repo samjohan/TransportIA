@@ -10,5 +10,5 @@ class TelegramSession extends Model
     public $incrementing = false;
     protected $keyType = 'string';
 
-    protected $fillable = ['chat_id', 'estado', 'ruta_uuid', 'categoria', 'monto', 'nota'];
+    protected $fillable = ['chat_id', 'estado', 'ruta_uuid', 'categoria', 'monto', 'nota', 'recibo_path', 'monto_ocr'];
 }

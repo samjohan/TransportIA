@@ -185,8 +185,11 @@ export default function Conductores() {
                   <label className="label">Teléfono</label>
                   <input
                     className="input"
+                    type="tel"
                     value={form.telefono}
                     onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                    placeholder="3001234567"
+                    required
                   />
                 </div>
                 <div>

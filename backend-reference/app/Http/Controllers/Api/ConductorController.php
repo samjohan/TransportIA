@@ -28,7 +28,7 @@ class ConductorController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8',
-            'telefono' => 'nullable|string|max:255',
+            'telefono' => 'required|string|max:255|unique:users,telefono',
             'licencia_conducir' => 'nullable|string|max:255',
         ]);
 
@@ -36,7 +36,7 @@ class ConductorController extends Controller
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'telefono' => $data['telefono'] ?? null,
+            'telefono' => $data['telefono'],
             'licencia_conducir' => $data['licencia_conducir'] ?? null,
         ]);
 
@@ -55,7 +55,7 @@ class ConductorController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'email' => ['sometimes', 'required', 'email', Rule::unique('users', 'email')->ignore($conductor->id)],
             'password' => 'nullable|string|min:8',
-            'telefono' => 'nullable|string|max:255',
+            'telefono' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users', 'telefono')->ignore($conductor->id)],
             'licencia_conducir' => 'nullable|string|max:255',
         ]);
 

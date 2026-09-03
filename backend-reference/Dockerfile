@@ -3,7 +3,7 @@ FROM composer:2 AS composer
 FROM php:8.3-cli
 
 RUN apt-get update && apt-get install -y \
-        git unzip libpq-dev libzip-dev \
+        git unzip libpq-dev libzip-dev tesseract-ocr tesseract-ocr-spa \
     && docker-php-ext-install pdo pdo_pgsql pgsql zip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +36,7 @@ RUN composer create-project --prefer-dist --no-interaction --no-install --no-scr
     && cp -n .env.example .env \
     && composer config policy.advisories.block false \
     && composer install --no-interaction \
-    && composer require --no-interaction laravel/sanctum spatie/laravel-permission irazasyed/telegram-bot-sdk \
+    && composer require --no-interaction laravel/sanctum spatie/laravel-permission irazasyed/telegram-bot-sdk thiagoalessio/tesseract_ocr \
     && php artisan key:generate --ansi \
     && touch database/database.sqlite \
     # install:api auto-runs its migrations against whatever .env currently
