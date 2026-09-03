@@ -79,9 +79,20 @@ export default function Gastos() {
                 <td className="px-5 py-3 text-slate-600">{g.nit || <span className="text-slate-300">—</span>}</td>
                 <td className="px-5 py-3 text-slate-500">{g.nota}</td>
                 <td className="px-5 py-3">
-                  {g.recibo_path
-                    ? <a href={`/storage/${g.recibo_path}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Ver</a>
-                    : <span className="text-slate-300">—</span>}
+                  {g.recibo_path ? (
+                    <span className="flex gap-2">
+                      <a href={`/storage/${g.recibo_path}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
+                        Ver{g.recibo_path_2 ? ' (1)' : ''}
+                      </a>
+                      {g.recibo_path_2 && (
+                        <a href={`/storage/${g.recibo_path_2}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
+                          Ver (2)
+                        </a>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
                 </td>
               </tr>
             ))}

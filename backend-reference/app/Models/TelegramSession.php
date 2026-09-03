@@ -11,7 +11,7 @@ class TelegramSession extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'chat_id', 'estado', 'ruta_uuid', 'categoria', 'monto', 'nota', 'recibo_path',
+        'chat_id', 'estado', 'ruta_uuid', 'categoria', 'monto', 'nota', 'recibo_path', 'recibo_path_2',
         'monto_ocr', 'impuestos_ocr', 'factura_numero_ocr', 'nit_ocr',
     ];
 }

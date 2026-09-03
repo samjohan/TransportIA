@@ -22,6 +22,27 @@ class ReconocedorRecibo
         return $this->reconocer($rutaImagen)['monto'];
     }
 
+    // For a gasto with two photos (e.g. front and back of a receipt):
+    // reads each independently and, field by field, takes the first
+    // photo's reading and falls back to the second's only where the
+    // first found nothing.
+    public function reconocerFusionado(string $rutaImagen1, ?string $rutaImagen2): array
+    {
+        $primero = $this->reconocer($rutaImagen1);
+        if ($rutaImagen2 === null) {
+            return $primero;
+        }
+
+        $segundo = $this->reconocer($rutaImagen2);
+
+        return [
+            'monto' => $primero['monto'] ?? $segundo['monto'],
+            'impuestos' => $primero['impuestos'] ?? $segundo['impuestos'],
+            'factura_numero' => $primero['factura_numero'] ?? $segundo['factura_numero'],
+            'nit' => $primero['nit'] ?? $segundo['nit'],
+        ];
+    }
+
     public function reconocer(string $rutaImagen): array
     {
         $textoQr = $this->qr->leer($rutaImagen);

@@ -41,6 +41,7 @@ class TelegramBotService
     // abandoned or already-finished flow.
     private const ESTADO_POR_CALLBACK = [
         'foto' => 'esperando_foto',
+        'foto2' => 'esperando_foto2',
         'ruta' => 'esperando_ruta',
         'cat' => 'esperando_categoria',
         'monto' => 'esperando_monto',
@@ -52,7 +53,7 @@ class TelegramBotService
     // be added here instead of at every reset site.
     private const CAMPOS_GASTO_VACIOS = [
         'ruta_uuid' => null, 'categoria' => null, 'monto' => null, 'nota' => null,
-        'recibo_path' => null, 'monto_ocr' => null, 'impuestos_ocr' => null,
+        'recibo_path' => null, 'recibo_path_2' => null, 'monto_ocr' => null, 'impuestos_ocr' => null,
         'factura_numero_ocr' => null, 'nit_ocr' => null,
     ];
 
@@ -103,6 +104,7 @@ class TelegramBotService
 
         match ($session->estado) {
             'esperando_foto' => $this->recibirFotoInicial($chatId, $conductor, $session, $photos),
+            'esperando_foto2' => $this->recibirFotoSegunda($chatId, $conductor, $session, $photos),
             'esperando_ruta' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la ruta.'),
             'esperando_categoria' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la categoría.'),
             'esperando_monto' => $this->recibirMonto($chatId, $session, $text),
@@ -144,6 +146,7 @@ class TelegramBotService
 
         match ($tipo) {
             'foto' => $this->omitirFotoInicial($chatId, $messageId, $conductor, $session),
+            'foto2' => $this->omitirFotoSegunda($chatId, $messageId, $conductor, $session),
             'ruta' => $this->seleccionarRuta($chatId, $messageId, $conductor, $session, $valor),
             'cat' => $this->seleccionarCategoria($chatId, $messageId, $session, $valor),
             'monto' => $this->confirmarMontoOcr($chatId, $messageId, $session),
@@ -202,9 +205,11 @@ class TelegramBotService
             ['estado' => 'esperando_foto'] + self::CAMPOS_GASTO_VACIOS
         );
 
-        $this->enviarInline($chatId, 'Envía una foto del recibo, o toca "Sin foto" para continuar sin foto.', [
-            [['text' => 'Sin foto', 'callback_data' => 'foto:skip']],
-        ]);
+        $this->enviarInline(
+            $chatId,
+            "Envía una foto del recibo, o toca \"Sin foto\" para continuar sin foto.\n\n(Usa el ícono de cámara o el clip 📎 de Telegram, junto al mensaje, para tomarla o adjuntarla — el bot no puede abrir la cámara por ti.)",
+            [[['text' => 'Sin foto', 'callback_data' => 'foto:skip']]]
+        );
     }
 
     private function recibirFotoInicial(string $chatId, User $conductor, TelegramSession $session, Collection $photos): void
@@ -217,25 +222,59 @@ class TelegramBotService
         // Telegram sends the same photo at several resolutions; the last
         // entry is the largest.
         $reciboPath = $this->descargarFoto($photos->last()->getFileId());
-        $leido = $this->reconocedor->reconocer(Storage::disk('public')->path($reciboPath));
+        $session->update(['estado' => 'esperando_foto2', 'recibo_path' => $reciboPath]);
 
-        $session->update([
-            'recibo_path' => $reciboPath,
-            'monto_ocr' => $leido['monto'],
-            'impuestos_ocr' => $leido['impuestos'],
-            'factura_numero_ocr' => $leido['factura_numero'],
-            'nit_ocr' => $leido['nit'],
-        ]);
-        $this->pedirRuta($chatId, $conductor, $session);
+        $this->enviarInline(
+            $chatId,
+            '📷 Foto recibida. ¿Quieres agregar otra (ej. el reverso del recibo)? Envíala, o toca "Listo, continuar".',
+            [[['text' => 'Listo, continuar', 'callback_data' => 'foto2:listo']]]
+        );
     }
 
     private function omitirFotoInicial(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
     {
         $this->marcarSeleccion($chatId, $messageId, 'Sin foto');
         $session->update([
-            'recibo_path' => null, 'monto_ocr' => null, 'impuestos_ocr' => null,
-            'factura_numero_ocr' => null, 'nit_ocr' => null,
+            'recibo_path' => null, 'recibo_path_2' => null, 'monto_ocr' => null,
+            'impuestos_ocr' => null, 'factura_numero_ocr' => null, 'nit_ocr' => null,
         ]);
+        $this->pedirRuta($chatId, $conductor, $session);
+    }
+
+    private function recibirFotoSegunda(string $chatId, User $conductor, TelegramSession $session, Collection $photos): void
+    {
+        if ($photos->isEmpty()) {
+            $this->enviar($chatId, 'Envía otra foto o toca "Listo, continuar".');
+            return;
+        }
+
+        $session->update(['recibo_path_2' => $this->descargarFoto($photos->last()->getFileId())]);
+        $this->leerFotosYPedirRuta($chatId, $conductor, $session);
+    }
+
+    private function omitirFotoSegunda(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
+    {
+        $this->marcarSeleccion($chatId, $messageId, 'Listo');
+        $this->leerFotosYPedirRuta($chatId, $conductor, $session);
+    }
+
+    // Runs QR/OCR once both photo steps are done (whether the driver sent
+    // one photo, two, or none) and moves on to picking the ruta.
+    private function leerFotosYPedirRuta(string $chatId, User $conductor, TelegramSession $session): void
+    {
+        if ($session->recibo_path) {
+            $ruta1 = Storage::disk('public')->path($session->recibo_path);
+            $ruta2 = $session->recibo_path_2 ? Storage::disk('public')->path($session->recibo_path_2) : null;
+            $leido = $this->reconocedor->reconocerFusionado($ruta1, $ruta2);
+
+            $session->update([
+                'monto_ocr' => $leido['monto'],
+                'impuestos_ocr' => $leido['impuestos'],
+                'factura_numero_ocr' => $leido['factura_numero'],
+                'nit_ocr' => $leido['nit'],
+            ]);
+        }
+
         $this->pedirRuta($chatId, $conductor, $session);
     }
 
@@ -357,6 +396,7 @@ class TelegramBotService
             'factura_numero' => $session->factura_numero_ocr,
             'nit' => $session->nit_ocr,
             'recibo_path' => $session->recibo_path,
+            'recibo_path_2' => $session->recibo_path_2,
             'monto_ocr' => $session->monto_ocr,
             'creado_offline_en' => now(),
         ]);

@@ -230,7 +230,7 @@ export default function AsignarRuta() {
               <tbody className="divide-y divide-slate-100">
                 {rutas.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-5 py-8 text-center text-slate-400">
                       No hay rutas todavía.
                     </td>
                   </tr>
@@ -369,6 +369,9 @@ export default function AsignarRuta() {
                     <th className="px-6 py-2">Fecha</th>
                     <th className="px-6 py-2">Categoría</th>
                     <th className="px-6 py-2">Monto</th>
+                    <th className="px-6 py-2">Impuestos</th>
+                    <th className="px-6 py-2">Factura</th>
+                    <th className="px-6 py-2">NIT</th>
                     <th className="px-6 py-2">Nota</th>
                     <th className="px-6 py-2">Recibo</th>
                   </tr>
@@ -376,12 +379,12 @@ export default function AsignarRuta() {
                 <tbody className="divide-y divide-slate-100">
                   {cargandoDetalle && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-6 text-center text-slate-400">Cargando…</td>
+                      <td colSpan={8} className="px-6 py-6 text-center text-slate-400">Cargando…</td>
                     </tr>
                   )}
                   {!cargandoDetalle && gastosDetalle.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-6 text-center text-slate-400">
+                      <td colSpan={8} className="px-6 py-6 text-center text-slate-400">
                         Este viaje todavía no tiene gastos registrados.
                       </td>
                     </tr>
@@ -396,11 +399,27 @@ export default function AsignarRuta() {
                         )}
                       </td>
                       <td className="px-6 py-2 text-slate-600">{formatCOP(g.monto)}</td>
+                      <td className="px-6 py-2 text-slate-600">
+                        {g.impuestos != null ? formatCOP(g.impuestos) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-6 py-2 text-slate-600">{g.factura_numero || <span className="text-slate-300">—</span>}</td>
+                      <td className="px-6 py-2 text-slate-600">{g.nit || <span className="text-slate-300">—</span>}</td>
                       <td className="px-6 py-2 text-slate-500">{g.nota || '—'}</td>
                       <td className="px-6 py-2">
-                        {g.recibo_path
-                          ? <a href={`/storage/${g.recibo_path}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Ver</a>
-                          : <span className="text-slate-300">—</span>}
+                        {g.recibo_path ? (
+                          <span className="flex gap-2">
+                            <a href={`/storage/${g.recibo_path}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
+                              Ver{g.recibo_path_2 ? ' (1)' : ''}
+                            </a>
+                            {g.recibo_path_2 && (
+                              <a href={`/storage/${g.recibo_path_2}`} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
+                                Ver (2)
+                              </a>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
