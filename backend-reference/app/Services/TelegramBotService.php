@@ -21,17 +21,20 @@ use Telegram\Bot\Objects\Update;
 // TelegramSession since long-polling updates arrive one at a time with no
 // memory of previous messages otherwise.
 //
-// The flow leads with the receipt photo (or "Sin foto") rather than
-// ending with it: OCR-ing it right away (via ReconocedorRecibo) means the
-// monto step later on can offer the detected amount as a one-tap button
-// instead of making the driver type it, the same shortcut the PWA gives
-// via on-device OCR.
+// Flow order: ruta first, then the receipt photo(s) (or "Sin foto"),
+// then categoría, monto, nota. Photos come right after ruta rather than
+// last: OCR-ing them as soon as they're in (via ReconocedorRecibo) means
+// the monto step later on can offer the detected amount as a one-tap
+// button instead of making the driver type it, the same shortcut the PWA
+// gives via on-device OCR — and ruta first means that head start applies
+// before the driver has typed anything else.
 //
-// Ruta/categoría/nota/monto-confirm choices are inline keyboards (buttons
-// attached to the bot's own message, answered via callback_query) rather
-// than a persistent reply keyboard: tapping one doesn't leave a stray text
-// message in the chat, and the message is edited afterwards to show what
-// was picked and drop the buttons, so old ones can't be tapped again.
+// Ruta/foto/categoría/nota/monto-confirm choices are inline keyboards
+// (buttons attached to the bot's own message, answered via
+// callback_query) rather than a persistent reply keyboard: tapping one
+// doesn't leave a stray text message in the chat, and the message is
+// edited afterwards to show what was picked and drop the buttons, so old
+// ones can't be tapped again.
 class TelegramBotService
 {
     private const CATEGORIAS = ['Combustible', 'Peaje', 'Comida', 'Hospedaje', 'Mantenimiento', 'Otro'];
@@ -40,9 +43,9 @@ class TelegramBotService
     // guards against a stray tap on an inline keyboard left over from an
     // abandoned or already-finished flow.
     private const ESTADO_POR_CALLBACK = [
+        'ruta' => 'esperando_ruta',
         'foto' => 'esperando_foto',
         'foto2' => 'esperando_foto2',
-        'ruta' => 'esperando_ruta',
         'cat' => 'esperando_categoria',
         'monto' => 'esperando_monto',
         'nota' => 'esperando_nota',
@@ -103,9 +106,9 @@ class TelegramBotService
         $session = TelegramSession::firstOrCreate(['chat_id' => $chatId]);
 
         match ($session->estado) {
-            'esperando_foto' => $this->recibirFotoInicial($chatId, $conductor, $session, $photos),
-            'esperando_foto2' => $this->recibirFotoSegunda($chatId, $conductor, $session, $photos),
             'esperando_ruta' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la ruta.'),
+            'esperando_foto' => $this->recibirFotoInicial($chatId, $session, $photos),
+            'esperando_foto2' => $this->recibirFotoSegunda($chatId, $session, $photos),
             'esperando_categoria' => $this->enviar($chatId, 'Toca uno de los botones de arriba para elegir la categoría.'),
             'esperando_monto' => $this->recibirMonto($chatId, $session, $text),
             'esperando_nota' => $this->recibirNota($chatId, $conductor, $session, $text),
@@ -145,8 +148,8 @@ class TelegramBotService
         }
 
         match ($tipo) {
-            'foto' => $this->omitirFotoInicial($chatId, $messageId, $conductor, $session),
-            'foto2' => $this->omitirFotoSegunda($chatId, $messageId, $conductor, $session),
+            'foto' => $this->omitirFotoInicial($chatId, $messageId, $session),
+            'foto2' => $this->omitirFotoSegunda($chatId, $messageId, $session),
             'ruta' => $this->seleccionarRuta($chatId, $messageId, $conductor, $session, $valor),
             'cat' => $this->seleccionarCategoria($chatId, $messageId, $session, $valor),
             'monto' => $this->confirmarMontoOcr($chatId, $messageId, $session),
@@ -191,89 +194,10 @@ class TelegramBotService
 
     private function iniciarGasto(string $chatId, User $conductor): void
     {
-        $tieneRutas = Ruta::where('conductor_id', $conductor->id)
-            ->whereIn('estado', ['pendiente', 'en_curso'])
-            ->exists();
-
-        if (! $tieneRutas) {
-            $this->enviar($chatId, 'No tienes rutas activas en este momento.');
-            return;
-        }
-
-        TelegramSession::updateOrCreate(
+        $session = TelegramSession::updateOrCreate(
             ['chat_id' => $chatId],
-            ['estado' => 'esperando_foto'] + self::CAMPOS_GASTO_VACIOS
+            ['estado' => 'inicio'] + self::CAMPOS_GASTO_VACIOS
         );
-
-        $this->enviarInline(
-            $chatId,
-            "Envía una foto del recibo, o toca \"Sin foto\" para continuar sin foto.\n\n(Usa el ícono de cámara o el clip 📎 de Telegram, junto al mensaje, para tomarla o adjuntarla — el bot no puede abrir la cámara por ti.)",
-            [[['text' => 'Sin foto', 'callback_data' => 'foto:skip']]]
-        );
-    }
-
-    private function recibirFotoInicial(string $chatId, User $conductor, TelegramSession $session, Collection $photos): void
-    {
-        if ($photos->isEmpty()) {
-            $this->enviar($chatId, 'Envía una foto o toca "Sin foto".');
-            return;
-        }
-
-        // Telegram sends the same photo at several resolutions; the last
-        // entry is the largest.
-        $reciboPath = $this->descargarFoto($photos->last()->getFileId());
-        $session->update(['estado' => 'esperando_foto2', 'recibo_path' => $reciboPath]);
-
-        $this->enviarInline(
-            $chatId,
-            '📷 Foto recibida. ¿Quieres agregar otra (ej. el reverso del recibo)? Envíala, o toca "Listo, continuar".',
-            [[['text' => 'Listo, continuar', 'callback_data' => 'foto2:listo']]]
-        );
-    }
-
-    private function omitirFotoInicial(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
-    {
-        $this->marcarSeleccion($chatId, $messageId, 'Sin foto');
-        $session->update([
-            'recibo_path' => null, 'recibo_path_2' => null, 'monto_ocr' => null,
-            'impuestos_ocr' => null, 'factura_numero_ocr' => null, 'nit_ocr' => null,
-        ]);
-        $this->pedirRuta($chatId, $conductor, $session);
-    }
-
-    private function recibirFotoSegunda(string $chatId, User $conductor, TelegramSession $session, Collection $photos): void
-    {
-        if ($photos->isEmpty()) {
-            $this->enviar($chatId, 'Envía otra foto o toca "Listo, continuar".');
-            return;
-        }
-
-        $session->update(['recibo_path_2' => $this->descargarFoto($photos->last()->getFileId())]);
-        $this->leerFotosYPedirRuta($chatId, $conductor, $session);
-    }
-
-    private function omitirFotoSegunda(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
-    {
-        $this->marcarSeleccion($chatId, $messageId, 'Listo');
-        $this->leerFotosYPedirRuta($chatId, $conductor, $session);
-    }
-
-    // Runs QR/OCR once both photo steps are done (whether the driver sent
-    // one photo, two, or none) and moves on to picking the ruta.
-    private function leerFotosYPedirRuta(string $chatId, User $conductor, TelegramSession $session): void
-    {
-        if ($session->recibo_path) {
-            $ruta1 = Storage::disk('public')->path($session->recibo_path);
-            $ruta2 = $session->recibo_path_2 ? Storage::disk('public')->path($session->recibo_path_2) : null;
-            $leido = $this->reconocedor->reconocerFusionado($ruta1, $ruta2);
-
-            $session->update([
-                'monto_ocr' => $leido['monto'],
-                'impuestos_ocr' => $leido['impuestos'],
-                'factura_numero_ocr' => $leido['factura_numero'],
-                'nit_ocr' => $leido['nit'],
-            ]);
-        }
 
         $this->pedirRuta($chatId, $conductor, $session);
     }
@@ -311,7 +235,88 @@ class TelegramBotService
         }
 
         $this->marcarSeleccion($chatId, $messageId, "Ruta: {$ruta->origen} → {$ruta->destino}");
-        $session->update(['estado' => 'esperando_categoria', 'ruta_uuid' => $ruta->uuid]);
+        $session->update(['estado' => 'esperando_foto', 'ruta_uuid' => $ruta->uuid]);
+        $this->pedirFoto($chatId);
+    }
+
+    private function pedirFoto(string $chatId): void
+    {
+        $this->enviarInline(
+            $chatId,
+            "Envía una foto del recibo, o toca \"Sin foto\" para continuar sin foto.\n\n(Usa el ícono de cámara o el clip 📎 de Telegram, junto al mensaje, para tomarla o adjuntarla — el bot no puede abrir la cámara por ti.)",
+            [[['text' => 'Sin foto', 'callback_data' => 'foto:skip']]]
+        );
+    }
+
+    private function recibirFotoInicial(string $chatId, TelegramSession $session, Collection $photos): void
+    {
+        if ($photos->isEmpty()) {
+            $this->enviar($chatId, 'Envía una foto o toca "Sin foto".');
+            return;
+        }
+
+        // Telegram sends the same photo at several resolutions; the last
+        // entry is the largest.
+        $reciboPath = $this->descargarFoto($photos->last()->getFileId());
+        $session->update(['estado' => 'esperando_foto2', 'recibo_path' => $reciboPath]);
+
+        $this->enviarInline(
+            $chatId,
+            '📷 Foto recibida. ¿Quieres agregar otra (ej. el reverso del recibo)? Envíala, o toca "Listo, continuar".',
+            [[['text' => 'Listo, continuar', 'callback_data' => 'foto2:listo']]]
+        );
+    }
+
+    private function omitirFotoInicial(string $chatId, int $messageId, TelegramSession $session): void
+    {
+        $this->marcarSeleccion($chatId, $messageId, 'Sin foto');
+        $session->update([
+            'recibo_path' => null, 'recibo_path_2' => null, 'monto_ocr' => null,
+            'impuestos_ocr' => null, 'factura_numero_ocr' => null, 'nit_ocr' => null,
+        ]);
+        $this->pedirCategoria($chatId, $session);
+    }
+
+    private function recibirFotoSegunda(string $chatId, TelegramSession $session, Collection $photos): void
+    {
+        if ($photos->isEmpty()) {
+            $this->enviar($chatId, 'Envía otra foto o toca "Listo, continuar".');
+            return;
+        }
+
+        $session->update(['recibo_path_2' => $this->descargarFoto($photos->last()->getFileId())]);
+        $this->leerFotosYPedirCategoria($chatId, $session);
+    }
+
+    private function omitirFotoSegunda(string $chatId, int $messageId, TelegramSession $session): void
+    {
+        $this->marcarSeleccion($chatId, $messageId, 'Listo');
+        $this->leerFotosYPedirCategoria($chatId, $session);
+    }
+
+    // Runs QR/OCR once both photo steps are done (whether the driver sent
+    // one photo, two, or none) and moves on to picking the categoría.
+    private function leerFotosYPedirCategoria(string $chatId, TelegramSession $session): void
+    {
+        if ($session->recibo_path) {
+            $ruta1 = Storage::disk('public')->path($session->recibo_path);
+            $ruta2 = $session->recibo_path_2 ? Storage::disk('public')->path($session->recibo_path_2) : null;
+            $leido = $this->reconocedor->reconocerFusionado($ruta1, $ruta2);
+
+            $session->update([
+                'monto_ocr' => $leido['monto'],
+                'impuestos_ocr' => $leido['impuestos'],
+                'factura_numero_ocr' => $leido['factura_numero'],
+                'nit_ocr' => $leido['nit'],
+            ]);
+        }
+
+        $this->pedirCategoria($chatId, $session);
+    }
+
+    private function pedirCategoria(string $chatId, TelegramSession $session): void
+    {
+        $session->update(['estado' => 'esperando_categoria']);
 
         $filas = collect(self::CATEGORIAS)
             ->map(fn ($c) => [['text' => $c, 'callback_data' => 'cat:'.strtolower($c)]])
