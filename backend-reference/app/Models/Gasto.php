@@ -15,7 +15,8 @@ class Gasto extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'uuid', 'ruta_uuid', 'conductor_id', 'monto', 'categoria', 'nota',
+        'uuid', 'ruta_uuid', 'conductor_id', 'monto', 'impuestos', 'categoria', 'nota',
+        'factura_numero', 'nit',
         'monto_ocr', 'monto_ocr_servidor', 'ocr_discrepancia',
         'recibo_path', 'creado_offline_en',
     ];

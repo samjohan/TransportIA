@@ -47,6 +47,15 @@ class TelegramBotService
         'nota' => 'esperando_nota',
     ];
 
+    // Every gasto-in-progress field, blanked out — reused everywhere a
+    // session starts or finishes a flow, so a new OCR field only needs to
+    // be added here instead of at every reset site.
+    private const CAMPOS_GASTO_VACIOS = [
+        'ruta_uuid' => null, 'categoria' => null, 'monto' => null, 'nota' => null,
+        'recibo_path' => null, 'monto_ocr' => null, 'impuestos_ocr' => null,
+        'factura_numero_ocr' => null, 'nit_ocr' => null,
+    ];
+
     public function __construct(
         private Api $telegram,
         private string $token,
@@ -188,10 +197,10 @@ class TelegramBotService
             return;
         }
 
-        TelegramSession::updateOrCreate(['chat_id' => $chatId], [
-            'estado' => 'esperando_foto', 'ruta_uuid' => null, 'categoria' => null,
-            'monto' => null, 'nota' => null, 'recibo_path' => null, 'monto_ocr' => null,
-        ]);
+        TelegramSession::updateOrCreate(
+            ['chat_id' => $chatId],
+            ['estado' => 'esperando_foto'] + self::CAMPOS_GASTO_VACIOS
+        );
 
         $this->enviarInline($chatId, 'Envía una foto del recibo, o toca "Sin foto" para continuar sin foto.', [
             [['text' => 'Sin foto', 'callback_data' => 'foto:skip']],
@@ -208,16 +217,25 @@ class TelegramBotService
         // Telegram sends the same photo at several resolutions; the last
         // entry is the largest.
         $reciboPath = $this->descargarFoto($photos->last()->getFileId());
-        $montoOcr = $this->reconocedor->extraerMonto(Storage::disk('public')->path($reciboPath));
+        $leido = $this->reconocedor->reconocer(Storage::disk('public')->path($reciboPath));
 
-        $session->update(['recibo_path' => $reciboPath, 'monto_ocr' => $montoOcr]);
+        $session->update([
+            'recibo_path' => $reciboPath,
+            'monto_ocr' => $leido['monto'],
+            'impuestos_ocr' => $leido['impuestos'],
+            'factura_numero_ocr' => $leido['factura_numero'],
+            'nit_ocr' => $leido['nit'],
+        ]);
         $this->pedirRuta($chatId, $conductor, $session);
     }
 
     private function omitirFotoInicial(string $chatId, int $messageId, User $conductor, TelegramSession $session): void
     {
         $this->marcarSeleccion($chatId, $messageId, 'Sin foto');
-        $session->update(['recibo_path' => null, 'monto_ocr' => null]);
+        $session->update([
+            'recibo_path' => null, 'monto_ocr' => null, 'impuestos_ocr' => null,
+            'factura_numero_ocr' => null, 'nit_ocr' => null,
+        ]);
         $this->pedirRuta($chatId, $conductor, $session);
     }
 
@@ -230,7 +248,7 @@ class TelegramBotService
 
         if ($rutas->isEmpty()) {
             $this->enviar($chatId, 'No tienes rutas activas en este momento.');
-            $session->update(['estado' => 'inicio']);
+            $session->update(['estado' => 'inicio'] + self::CAMPOS_GASTO_VACIOS);
             return;
         }
 
@@ -333,8 +351,11 @@ class TelegramBotService
             'ruta_uuid' => $session->ruta_uuid,
             'conductor_id' => $conductor->id,
             'monto' => $session->monto,
+            'impuestos' => $session->impuestos_ocr,
             'categoria' => $session->categoria,
             'nota' => $session->nota,
+            'factura_numero' => $session->factura_numero_ocr,
+            'nit' => $session->nit_ocr,
             'recibo_path' => $session->recibo_path,
             'monto_ocr' => $session->monto_ocr,
             'creado_offline_en' => now(),
@@ -346,15 +367,19 @@ class TelegramBotService
 
         $ruta = Ruta::find($session->ruta_uuid);
         $montoFormateado = number_format((float) $session->monto, 0, ',', '.');
-        $this->enviarConBotonGasto(
-            $chatId,
-            "✅ Gasto registrado: \${$montoFormateado} en {$session->categoria} para {$ruta->origen} → {$ruta->destino}."
-        );
+        $mensaje = "✅ Gasto registrado: \${$montoFormateado} en {$session->categoria} para {$ruta->origen} → {$ruta->destino}.";
+        if ($session->impuestos_ocr) {
+            $mensaje .= ' Impuestos: $'.number_format((float) $session->impuestos_ocr, 0, ',', '.').'.';
+        }
+        if ($session->factura_numero_ocr) {
+            $mensaje .= " Factura: {$session->factura_numero_ocr}.";
+        }
+        if ($session->nit_ocr) {
+            $mensaje .= " NIT: {$session->nit_ocr}.";
+        }
+        $this->enviarConBotonGasto($chatId, $mensaje);
 
-        $session->update([
-            'estado' => 'inicio', 'ruta_uuid' => null, 'categoria' => null, 'monto' => null,
-            'nota' => null, 'recibo_path' => null, 'monto_ocr' => null,
-        ]);
+        $session->update(['estado' => 'inicio'] + self::CAMPOS_GASTO_VACIOS);
     }
 
     private function descargarFoto(string $fileId): string
@@ -370,10 +395,10 @@ class TelegramBotService
 
     private function reiniciar(string $chatId, string $mensaje): void
     {
-        TelegramSession::updateOrCreate(['chat_id' => $chatId], [
-            'estado' => 'inicio', 'ruta_uuid' => null, 'categoria' => null, 'monto' => null,
-            'nota' => null, 'recibo_path' => null, 'monto_ocr' => null,
-        ]);
+        TelegramSession::updateOrCreate(
+            ['chat_id' => $chatId],
+            ['estado' => 'inicio'] + self::CAMPOS_GASTO_VACIOS
+        );
         $this->enviar($chatId, $mensaje);
     }
 

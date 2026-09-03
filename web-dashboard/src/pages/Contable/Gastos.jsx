@@ -34,7 +34,7 @@ export default function Gastos() {
         <p className="text-sm text-slate-500 mt-1">Todos los gastos registrados por los conductores.</p>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -43,6 +43,9 @@ export default function Gastos() {
               <th className="px-5 py-3">Ruta</th>
               <th className="px-5 py-3">Categoría</th>
               <th className="px-5 py-3">Monto</th>
+              <th className="px-5 py-3">Impuestos</th>
+              <th className="px-5 py-3">Factura</th>
+              <th className="px-5 py-3">NIT</th>
               <th className="px-5 py-3">Nota</th>
               <th className="px-5 py-3">Recibo</th>
             </tr>
@@ -50,12 +53,12 @@ export default function Gastos() {
           <tbody className="divide-y divide-slate-100">
             {cargando && (
               <tr>
-                <td colSpan={7} className="px-5 py-8 text-center text-slate-400">Cargando…</td>
+                <td colSpan={10} className="px-5 py-8 text-center text-slate-400">Cargando…</td>
               </tr>
             )}
             {!cargando && gastos.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-8 text-center text-slate-400">No hay gastos registrados.</td>
+                <td colSpan={10} className="px-5 py-8 text-center text-slate-400">No hay gastos registrados.</td>
               </tr>
             )}
             {gastos.map((g) => (
@@ -69,6 +72,11 @@ export default function Gastos() {
                   </span>
                 </td>
                 <td className="px-5 py-3 text-slate-600">{formatCOP(g.monto)}</td>
+                <td className="px-5 py-3 text-slate-600">
+                  {g.impuestos != null ? formatCOP(g.impuestos) : <span className="text-slate-300">—</span>}
+                </td>
+                <td className="px-5 py-3 text-slate-600">{g.factura_numero || <span className="text-slate-300">—</span>}</td>
+                <td className="px-5 py-3 text-slate-600">{g.nit || <span className="text-slate-300">—</span>}</td>
                 <td className="px-5 py-3 text-slate-500">{g.nota}</td>
                 <td className="px-5 py-3">
                   {g.recibo_path

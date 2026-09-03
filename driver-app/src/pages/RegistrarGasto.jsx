@@ -39,6 +39,9 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
   const [fotoBlob, setFotoBlob] = useState(null)
   const [fotoPreview, setFotoPreview] = useState(null)
   const [montoOcr, setMontoOcr] = useState(null)
+  const [impuestos, setImpuestos] = useState(null)
+  const [facturaNumero, setFacturaNumero] = useState(null)
+  const [nit, setNit] = useState(null)
   const [procesandoOcr, setProcesandoOcr] = useState(false)
   const [guardado, setGuardado] = useState(false)
 
@@ -52,10 +55,19 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
 
     try {
       // Runs fully on-device — works with no internet connection.
-      const { montoDetectado } = await reconocerRecibo(file)
+      const { montoDetectado, impuestoDetectado, facturaDetectada, nitDetectado } = await reconocerRecibo(file)
       if (montoDetectado) {
         setMontoOcr(montoDetectado)
         setMonto(montoDetectado) // pre-fill; driver can still edit
+      }
+      if (impuestoDetectado) {
+        setImpuestos(impuestoDetectado)
+      }
+      if (facturaDetectada) {
+        setFacturaNumero(facturaDetectada)
+      }
+      if (nitDetectado) {
+        setNit(nitDetectado)
       }
     } catch (err) {
       console.warn('OCR no disponible:', err.message)
@@ -71,8 +83,11 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
       uuid: uuid(),
       ruta_uuid: ruta.uuid,
       monto: Number(monto),
+      impuestos,
       categoria,
       nota,
+      factura_numero: facturaNumero,
+      nit,
       monto_ocr: montoOcr,
       creado_offline_en: new Date().toISOString(),
       synced: 0,
@@ -93,7 +108,8 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
     }
 
     setMonto(''); setCategoria('combustible'); setNota('')
-    setFotoBlob(null); setFotoPreview(null); setMontoOcr(null)
+    setFotoBlob(null); setFotoPreview(null); setMontoOcr(null); setImpuestos(null)
+    setFacturaNumero(null); setNit(null)
     onGuardado?.()
 
     setGuardado(true)
@@ -123,6 +139,18 @@ export default function RegistrarGasto({ ruta, onGuardado }) {
           {montoOcr && !procesandoOcr && (
             <p className="mt-2 text-sm text-emerald-600">
               Monto detectado: {new Intl.NumberFormat('es-CO').format(montoOcr)} (puedes corregirlo abajo)
+            </p>
+          )}
+          {impuestos && !procesandoOcr && (
+            <p className="mt-1 text-sm text-emerald-600">
+              Impuestos detectados: {new Intl.NumberFormat('es-CO').format(impuestos)}
+            </p>
+          )}
+          {(facturaNumero || nit) && !procesandoOcr && (
+            <p className="mt-1 text-sm text-emerald-600">
+              {facturaNumero && `Factura: ${facturaNumero}`}
+              {facturaNumero && nit && ' · '}
+              {nit && `NIT: ${nit}`}
             </p>
           )}
         </div>

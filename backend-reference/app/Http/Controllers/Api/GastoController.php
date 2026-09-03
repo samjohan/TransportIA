@@ -34,8 +34,11 @@ class GastoController extends Controller
             'uuid' => 'required|uuid',
             'ruta_uuid' => 'required|uuid|exists:rutas,uuid',
             'monto' => 'required|numeric|min:0',
+            'impuestos' => 'nullable|numeric|min:0',
             'categoria' => 'required|in:combustible,peaje,comida,hospedaje,mantenimiento,otro',
             'nota' => 'nullable|string',
+            'factura_numero' => 'nullable|string|max:255', // vendor's invoice number, off the receipt
+            'nit' => 'nullable|string|max:255', // vendor's NIT, off the receipt
             'monto_ocr' => 'nullable|numeric', // on-device Tesseract.js reading
             'creado_offline_en' => 'nullable|date',
             'recibo' => 'nullable|image|max:8192',
@@ -59,8 +62,11 @@ class GastoController extends Controller
                 'ruta_uuid' => $data['ruta_uuid'],
                 'conductor_id' => $request->user()->id,
                 'monto' => $data['monto'],
+                'impuestos' => $data['impuestos'] ?? null,
                 'categoria' => $data['categoria'],
                 'nota' => $data['nota'] ?? null,
+                'factura_numero' => $data['factura_numero'] ?? null,
+                'nit' => $data['nit'] ?? null,
                 'monto_ocr' => $data['monto_ocr'] ?? null,
                 'creado_offline_en' => $data['creado_offline_en'] ?? null,
                 'recibo_path' => $reciboPath ?? null,
