@@ -7,6 +7,7 @@ use App\Models\Gasto;
 use App\Models\Ruta;
 use App\Models\TelegramSession;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -66,7 +67,11 @@ class TelegramBotService
 
         $chatId = (string) $message->getChat()->getId();
         $text = trim((string) $message->getText());
-        $photos = $message->getPhoto();
+        // getPhoto() returns a Collection when present but (depending on
+        // SDK version) either null or an empty Collection when absent —
+        // normalize to always-a-Collection so downstream code has one
+        // shape to check against.
+        $photos = collect($message->getPhoto());
 
         $conductor = User::where('telegram_chat_id', $chatId)->first();
 
@@ -193,16 +198,16 @@ class TelegramBotService
         ]);
     }
 
-    private function recibirFotoInicial(string $chatId, User $conductor, TelegramSession $session, ?array $photos): void
+    private function recibirFotoInicial(string $chatId, User $conductor, TelegramSession $session, Collection $photos): void
     {
-        if (! $photos) {
+        if ($photos->isEmpty()) {
             $this->enviar($chatId, 'Envía una foto o toca "Sin foto".');
             return;
         }
 
         // Telegram sends the same photo at several resolutions; the last
         // entry is the largest.
-        $reciboPath = $this->descargarFoto(collect($photos)->last()->getFileId());
+        $reciboPath = $this->descargarFoto($photos->last()->getFileId());
         $montoOcr = $this->reconocedor->extraerMonto(Storage::disk('public')->path($reciboPath));
 
         $session->update(['recibo_path' => $reciboPath, 'monto_ocr' => $montoOcr]);
