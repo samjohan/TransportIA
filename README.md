@@ -81,12 +81,14 @@ Este scaffold incorpora estas correcciones sobre la especificación inicial:
 5. **`bootstrap/app.php` añadido** registrando los middleware aliases `role`/`permission`/`role_or_permission` de Spatie. Laravel 11 eliminó `app/Http/Kernel.php`, así que estos alias ya no se registran solos al instalar el paquete — sin este archivo, **cualquier** ruta con `->middleware('role:...')` (asignar rutas, gastos, reportes, conductores) responde 500.
 6. **`ConductorController` (CRUD de conductores) añadido** para la sección "Conductores" del planificador — el borrador original solo mencionaba esto como "próximo paso" (endpoint `/api/conductores` pendiente).
 
-## Cómo funciona el OCR de recibos (dos pasadas)
+## Cómo funciona la lectura de recibos (QR primero, OCR como respaldo)
 
-1. **En el dispositivo (offline)**: el conductor toma la foto → **Tesseract.js** corre en el navegador (WebAssembly, sin internet) → intenta leer el monto → lo prellena en el formulario → el conductor confirma o corrige.
-2. **En el servidor (cuando hay conexión)**: al sincronizarse, un job (`ProcesarOcrRecibo`) vuelve a leer la imagen con un servicio en la nube (Google Vision / AWS Textract — hay que conectar la API que prefieras) y compara contra lo que confirmó el conductor. Si difieren, el gasto se marca `ocr_discrepancia = true` y aparece en el reporte del contable.
+Tanto en el dispositivo como en el servidor, leer un recibo sigue el mismo orden: primero busca un **código QR** en la foto (muchas facturas electrónicas DIAN traen uno con el monto, IVA, número de factura y NIT ya codificados — mucho más confiable que leer texto impreso) y, solo si no hay QR o no trae nada reconocible, cae a **OCR** del texto impreso.
 
-Esto evita bloquear al conductor en campo mientras igual le da al contable una segunda verificación más precisa.
+1. **En el dispositivo (offline)**: el conductor toma la foto → `driver-app/src/qr.js` (jsQR) busca un QR; si no hay, `driver-app/src/ocr.js` corre **Tesseract.js** en el navegador (WebAssembly, sin internet) → intenta leer monto, impuestos, número de factura y NIT → los prellena en el formulario → el conductor confirma o corrige.
+2. **En el servidor (cuando hay conexión)**: al sincronizarse, un job (`ProcesarOcrRecibo`) vuelve a leer la imagen con el mismo QR-primero-luego-OCR (`ReconocedorRecibo` + `LectorQr`, vía `khanamiryan/qrcode-detector-decoder` y el binario `tesseract-ocr`) y compara el monto contra lo que confirmó el conductor. Si difieren, el gasto se marca `ocr_discrepancia = true` y aparece en el reporte del contable.
+
+Esto evita bloquear al conductor en campo mientras igual le da al contable una segunda verificación.
 
 ## Web dashboard
 
@@ -122,7 +124,7 @@ Un conductor que prefiera no instalar la app puede registrar gastos hablándole 
 **Uso (desde Telegram, no requiere abrir el navegador):**
 1. Busca tu bot y envía `/start` (o `/empezar`).
 2. La primera vez, vincula tu cuenta: envía el número de celular con el que te registró tu planificador en `/planificador` → Conductores (ej: `3001234567`, con o sin `+57`).
-3. Envía `/gasto` (o toca el botón "📝 Registrar gasto") para empezar a registrar uno — el bot pide primero la foto del recibo (o "Sin foto"), la lee con OCR (Tesseract, con soporte de español) y, si detecta un monto, lo ofrece como botón más adelante en vez de tener que escribirlo. Después pregunta ruta (solo rutas `pendiente`/`en_curso`), categoría, monto (sugerido o escrito) y nota opcional, y confirma al terminar. `/cancelar` aborta el flujo en cualquier momento.
+3. Envía `/gasto` (o toca el botón "📝 Registrar gasto") para empezar a registrar uno — el bot pide primero la foto del recibo (o "Sin foto") y la lee (QR primero si trae uno, si no OCR con Tesseract); si detecta un monto, lo ofrece como botón más adelante en vez de tener que escribirlo, y si detecta impuestos/factura/NIT los adjunta directo al gasto. Después pregunta ruta (solo rutas `pendiente`/`en_curso`), categoría, monto (sugerido o escrito) y nota opcional, y confirma al terminar — mencionando lo detectado. `/cancelar` aborta el flujo en cualquier momento.
 
 ⚠️ La vinculación por número de celular no verifica que quien lo envía sea realmente el dueño de ese teléfono (cualquiera que conozca el número de otro conductor podría vincularlo a su propio Telegram) — igual de simple que el esquema anterior de correo+contraseña, pero sin dejar una contraseña visible en el historial del chat. Aceptable para una herramienta interna pequeña; si esto crece, vale la pena pedir confirmación por el botón nativo de Telegram "Compartir contacto" (`request_contact`), que sí verifica el número contra la cuenta de Telegram.
 
@@ -152,7 +154,6 @@ Después de desplegar, asígnale un dominio a cada servicio desde la UI de Dokpl
 
 ## Próximos pasos sugeridos
 
-- Conectar un proveedor real de OCR en la nube dentro de `ProcesarOcrRecibo`
 - Agregar endpoint `/api/conductores` para el selector de conductores en "Asignar ruta" (actualmente pide el ID a mano)
 - Exportar reportes a PDF/Excel para el contable
 - Manejo de expiración/renovación de token para sesiones largas sin conexión

@@ -4,24 +4,34 @@ namespace App\Services;
 
 use thiagoalessio\TesseractOCR\TesseractOCR;
 
-// Server-side OCR pass over a receipt photo. Same heuristics the driver
-// PWA already runs on-device with tesseract.js (driver-app/src/ocr.js) —
-// ported to PHP via the tesseract-ocr binary (see Dockerfile) so it can
-// also run here: as the first step of the Telegram bot's /gasto flow,
-// where there's no browser/WASM to run tesseract.js in, and as the
+// Reads a receipt photo for monto/impuestos/factura_numero/nit. Tries the
+// QR code first (see LectorQr) — far more reliable when the vendor's POS
+// prints one with the invoice's fields in it — and only OCRs the printed
+// text (via the tesseract-ocr binary, see Dockerfile) when there's no QR
+// or it didn't carry anything usable. Same heuristics the driver PWA runs
+// on-device (driver-app/src/qr.js, driver-app/src/ocr.js), ported to PHP
+// so they can also run here: as the first step of the Telegram bot's
+// /gasto flow, where there's no browser/WASM to run them in, and as the
 // "second opinion" pass over PWA-sourced photos in ProcesarOcrRecibo.
 class ReconocedorRecibo
 {
+    public function __construct(private LectorQr $qr) {}
+
     public function extraerMonto(string $rutaImagen): ?float
     {
-        return $this->montoDesdeTexto($this->leerTexto($rutaImagen));
+        return $this->reconocer($rutaImagen)['monto'];
     }
 
-    // One OCR pass, both figures — used by the Telegram flow, which wants
-    // the total and the tax line from the same photo without paying for
-    // Tesseract twice.
     public function reconocer(string $rutaImagen): array
     {
+        $textoQr = $this->qr->leer($rutaImagen);
+        if ($textoQr !== null) {
+            $desdeQr = $this->desdeTextoQr($textoQr);
+            if (array_filter($desdeQr, fn ($v) => $v !== null)) {
+                return $desdeQr;
+            }
+        }
+
         $texto = $this->leerTexto($rutaImagen);
 
         return [
@@ -30,6 +40,52 @@ class ReconocedorRecibo
             'factura_numero' => $this->codigoEnLinea($texto, fn ($l) => str_contains($l, 'factura')),
             'nit' => $this->codigoEnLinea($texto, fn ($l) => str_contains($l, 'nit')),
         ];
+    }
+
+    // DIAN and most POS QR payloads are either a URL with the invoice's
+    // fields as query params, or a flat delimited string of "key=value"
+    // pairs — either way, parsing it as a query string picks them up.
+    // Deliberately doesn't fall back to "largest number in the text" like
+    // OCR does: a QR also typically encodes a CUFE hash or document ID,
+    // and grabbing the largest number there would just be noise.
+    private function desdeTextoQr(string $texto): array
+    {
+        $query = parse_url($texto, PHP_URL_QUERY) ?: preg_replace('/[;|]/', '&', $texto);
+        parse_str($query, $parametros);
+        $parametros = array_change_key_case($parametros);
+
+        $buscar = function (array $claves) use ($parametros): ?string {
+            foreach ($parametros as $clave => $valor) {
+                if (! is_string($valor) || $valor === '') {
+                    continue;
+                }
+                foreach ($claves as $buscado) {
+                    if (str_contains($clave, $buscado)) {
+                        return $valor;
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        return [
+            'monto' => $this->comoMoneda($buscar(['valor', 'total', 'monto'])),
+            'impuestos' => $this->comoMoneda($buscar(['iva', 'impuesto'])),
+            'factura_numero' => $buscar(['factura', 'numfac', 'nrofactura', 'numero']),
+            'nit' => $buscar(['nit']),
+        ];
+    }
+
+    private function comoMoneda(?string $valor): ?float
+    {
+        if ($valor === null) {
+            return null;
+        }
+
+        $numero = (float) str_replace(',', '.', str_replace('.', '', preg_replace('/[^\d.,]/', '', $valor)));
+
+        return $numero > 0 ? $numero : null;
     }
 
     private function leerTexto(string $rutaImagen): string

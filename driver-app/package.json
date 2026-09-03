@@ -14,7 +14,8 @@
     "dexie": "^4.0.8",
     "dexie-react-hooks": "^1.1.7",
     "axios": "^1.7.2",
-    "tesseract.js": "^5.1.1"
+    "tesseract.js": "^5.1.1",
+    "jsqr": "^1.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

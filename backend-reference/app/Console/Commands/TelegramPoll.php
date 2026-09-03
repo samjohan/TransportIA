@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\LectorQr;
 use App\Services\ReconocedorRecibo;
 use App\Services\TelegramBotService;
 use Illuminate\Console\Command;
@@ -30,7 +31,7 @@ class TelegramPoll extends Command
         }
 
         $telegram = new Api($token);
-        $service = new TelegramBotService($telegram, $token, new ReconocedorRecibo());
+        $service = new TelegramBotService($telegram, $token, new ReconocedorRecibo(new LectorQr()));
 
         $this->info('Bot de Telegram escuchando…');
         $offset = 0;

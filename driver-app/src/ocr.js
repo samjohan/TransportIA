@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js'
+import { reconocerQr } from './qr'
 
 let worker = null
 
@@ -76,7 +77,16 @@ function extraerNit(texto) {
   return extraerCodigoEnLinea(texto, (l) => l.includes('nit'))
 }
 
+// Tries the receipt's QR code first — far more reliable than OCR when
+// the vendor's POS prints one with the invoice's fields in it — and only
+// OCRs the printed text (via tesseract.js) when there's no QR or it
+// didn't carry anything usable.
 export async function reconocerRecibo(imagenBlob) {
+  const desdeQr = await reconocerQr(imagenBlob)
+  if (desdeQr) {
+    return { texto: null, ...desdeQr }
+  }
+
   const w = await getWorker()
   const { data } = await w.recognize(imagenBlob)
   return {
