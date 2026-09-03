@@ -341,7 +341,7 @@ export default function AsignarRuta() {
 
       {detalle && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
-          <div className="card w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+          <div className="card w-full max-w-4xl p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-start justify-between mb-1">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
