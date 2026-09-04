@@ -80,6 +80,33 @@ Este scaffold incorpora estas correcciones sobre la especificación inicial:
 4. **`RutaController::store` valida que `conductor_id` tenga el rol `conductor`** antes de asignarle una ruta (antes solo se validaba que el usuario existiera, permitiendo asignar rutas a un planificador o contable por error).
 5. **`bootstrap/app.php` añadido** registrando los middleware aliases `role`/`permission`/`role_or_permission` de Spatie. Laravel 11 eliminó `app/Http/Kernel.php`, así que estos alias ya no se registran solos al instalar el paquete — sin este archivo, **cualquier** ruta con `->middleware('role:...')` (asignar rutas, gastos, reportes, conductores) responde 500.
 6. **`ConductorController` (CRUD de conductores) añadido** para la sección "Conductores" del planificador — el borrador original solo mencionaba esto como "próximo paso" (endpoint `/api/conductores` pendiente).
+7. **`app/Http/Middleware/ForceJsonResponse.php` añadido**, enganchado al inicio del grupo `api` en `bootstrap/app.php`. Esta app es solo API — no tiene una ruta `login` web. Sin esto, cualquier request a `/api/*` sin sesión válida y sin encabezado `Accept: application/json` (ej. abrir la URL directo en una pestaña del navegador) hacía que la lógica de "redirigir invitados" de Laravel intentara construir `route('login')`, que no existe, y respondía `500 RouteNotFoundException` en vez de un `401` limpio.
+
+## Protección contra fuerza bruta en `/login`
+
+`POST /api/login` está limitado a **5 intentos por minuto por combinación de email+IP** (`AppServiceProvider::boot()` define el limiter `login`, aplicado con `->middleware('throttle:login')` en `routes/api.php`). Al superarlo responde `429 Too Many Requests` con headers `Retry-After`/`X-RateLimit-*` — incluso con la contraseña correcta, mientras la ventana esté activa (si no, bastaría con acertar al sexto intento para saltarse el límite).
+
+Se eligió email+IP en vez de solo IP para que:
+- Un atacante que rota de IP no reinicie el contador contra una cuenta puntual.
+- Varios conductores detrás del mismo NAT/red no se bloqueen entre sí al loguearse normalmente.
+
+## Log de requests a la API (solo local)
+
+`app/Http/Middleware/LogApiRequests.php` registra una línea por cada request a `/api/*` — método, ruta, código de respuesta, duración en ms, usuario/rol e IP — en `storage/logs/api-requests.log`, separado de `laravel.log`. Está enganchado al grupo de middleware `api` en `bootstrap/app.php`, pero **no hace nada fuera de `APP_ENV=local`** (que es justo lo que pone `docker-compose.yml`; `docker-compose.dokploy.yml` usa `APP_ENV=production`, así que en producción es un no-op).
+
+Para verlo en vivo con el stack de Docker Compose local:
+
+```bash
+docker compose exec backend tail -f storage/logs/api-requests.log
+```
+
+Cada línea queda así:
+
+```
+[2026-09-03 10:15:22] local.INFO: POST /api/gastos -> 201 (184ms) user=7 role=conductor ip=172.19.0.1
+```
+
+Sirve para ver qué endpoints pega cada app (web-dashboard, driver-app, bot de Telegram), cuáles fallan o tardan más, y desde qué usuario/rol. El archivo vive dentro del contenedor (no está en un volumen), así que se reinicia limpio con `docker compose down`/`up` o `docker compose restart backend`.
 
 ## Cómo funciona la lectura de recibos (QR primero, OCR como respaldo)
 
@@ -158,4 +185,3 @@ Después de desplegar, asígnale un dominio a cada servicio desde la UI de Dokpl
 - Exportar reportes a PDF/Excel para el contable
 - Manejo de expiración/renovación de token para sesiones largas sin conexión
 - Traducir mensajes de validación de Laravel a español (`lang/es/validation.php`)
-- Añadir throttling a `/login` (`Auth::attempt` no tiene límite de intentos en este scaffold)

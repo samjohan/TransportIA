@@ -8,7 +8,8 @@ use App\Http\Controllers\Api\RutaController;
 use App\Http\Controllers\Api\UbicacionController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
+// throttle:login -> 5 intentos/minuto por email+IP, ver AppServiceProvider::boot()
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);

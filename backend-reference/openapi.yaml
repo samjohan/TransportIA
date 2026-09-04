@@ -53,6 +53,17 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ValidationError' }
+        '429':
+          description: |
+            Too many attempts (5/minute per email+IP, see AppServiceProvider's
+            `login` rate limiter). Includes `Retry-After` and `X-RateLimit-*`
+            headers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: 'Too Many Attempts.' }
 
   /logout:
     post:
